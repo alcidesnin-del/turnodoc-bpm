@@ -16,15 +16,17 @@ async function getEdsId() {
 export async function getPersonal(rol = null) {
   const edsId = await getEdsId()
   let query = supabase
+    export async function getPersonal(rol = null) {
+  let query = supabase
     .from('personal')
     .select('*')
-    .eq('eds_id', edsId)
     .eq('activo', true)
     .order('rol', { ascending: true })
     .order('nombre', { ascending: true })
 
   if (rol) query = query.eq('rol', rol)
-  const { data } = await query
+  const { data, error } = await query
+  if (error) throw error
   return data || []
 }
 
