@@ -295,7 +295,13 @@ function renderProducto(n) {
 
 // ── Acciones UI ────────────────────────────────────────────────────────────
 window.setTurno = (t) => { estado.turno = t; renderApp() }
-window.setTab = (t) => { estado.tabActiva = t; renderApp() }
+window.setTab = (t) => {
+  estado.tabActiva = t
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('activo'))
+  document.querySelectorAll('.tab-content').forEach(s => s.classList.remove('activo'))
+  document.querySelector(`.tab-btn[onclick="setTab('${t}')"]`).classList.add('activo')
+  document.getElementById(`tab-${t}`).classList.add('activo')
+}
 window.setResponsable = (v) => { estado.responsable = v }
 
 window.setCN = (btn, tipo) => {
