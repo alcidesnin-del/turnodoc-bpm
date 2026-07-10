@@ -14,9 +14,6 @@ async function getEdsId() {
 
 // Obtener personal activo
 export async function getPersonal(rol = null) {
-  const edsId = await getEdsId()
-  let query = supabase
-    export async function getPersonal(rol = null) {
   let query = supabase
     .from('personal')
     .select('*')
