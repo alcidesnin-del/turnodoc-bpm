@@ -1,8 +1,3 @@
-bash
-
-cat /home/claude/turnoDoc-bpm/src/main.js
-Salida
-
 import { getPersonal, guardarManipuladores, guardarTemperaturas, guardarSuperficies, guardarRecepcion, getHistorial } from './db.js'
 
 // ── Estado global ──────────────────────────────────────────────────────────
