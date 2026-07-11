@@ -14,16 +14,17 @@ async function getEdsId() {
 
 // Obtener personal activo
 export async function getPersonal(rol = null) {
+  const edsId = await getEdsId()
   let query = supabase
     .from('personal')
     .select('*')
+    .eq('eds_id', edsId)
     .eq('activo', true)
     .order('rol', { ascending: true })
     .order('nombre', { ascending: true })
 
   if (rol) query = query.eq('rol', rol)
-  const { data, error } = await query
-  if (error) throw error
+  const { data } = await query
   return data || []
 }
 
@@ -199,4 +200,66 @@ export async function getDetalleRegistro(registroId, tipo) {
     .select('*')
     .eq('registro_id', registroId)
   return data || []
+}
+
+// Obtener registros completos de un día con todos los detalles
+export async function getRegistrosDia(fecha) {
+  const { data: registros } = await supabase
+    .from('registros_bpm')
+    .select('*')
+    .eq('fecha', fecha)
+    .order('created_at', { ascending: true })
+
+  if (!registros || registros.length === 0) return []
+
+  const tablas = {
+    manipuladores: 'registro_manipuladores',
+    temperatura: 'registro_temperaturas',
+    superficies: 'registro_superficies',
+    recepcion: 'registro_recepcion'
+  }
+
+  const resultado = await Promise.all(registros.map(async reg => {
+    const tabla = tablas[reg.tipo]
+    if (!tabla) return { ...reg, detalles: [] }
+    const { data: detalles } = await supabase
+      .from(tabla)
+      .select('*')
+      .eq('registro_id', reg.id)
+    return { ...reg, detalles: detalles || [] }
+  }))
+
+  return resultado
+}
+
+// Obtener registros de un período con detalles para PDF
+export async function getRegistrosPeriodo(fechaDesde, fechaHasta) {
+  const { data: registros } = await supabase
+    .from('registros_bpm')
+    .select('*')
+    .gte('fecha', fechaDesde)
+    .lte('fecha', fechaHasta)
+    .order('fecha', { ascending: true })
+    .order('created_at', { ascending: true })
+
+  if (!registros || registros.length === 0) return []
+
+  const tablas = {
+    manipuladores: 'registro_manipuladores',
+    temperatura: 'registro_temperaturas',
+    superficies: 'registro_superficies',
+    recepcion: 'registro_recepcion'
+  }
+
+  const resultado = await Promise.all(registros.map(async reg => {
+    const tabla = tablas[reg.tipo]
+    if (!tabla) return { ...reg, detalles: [] }
+    const { data: detalles } = await supabase
+      .from(tabla)
+      .select('*')
+      .eq('registro_id', reg.id)
+    return { ...reg, detalles: detalles || [] }
+  }))
+
+  return resultado
 }
