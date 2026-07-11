@@ -1,3 +1,8 @@
+bash
+
+cat /home/claude/turnoDoc-bpm/src/main.js
+Salida
+
 import { getPersonal, guardarManipuladores, guardarTemperaturas, guardarSuperficies, guardarRecepcion, getHistorial } from './db.js'
 
 // ── Estado global ──────────────────────────────────────────────────────────
@@ -6,10 +11,12 @@ const estado = {
   responsable: '',
   tabActiva: 'manipuladores',
   vistaHistorial: false,
+  vistaInicio: true,
   filtroHistorial: null,
   personal: [],
   personalTodos: [],
   prodCount: 1,
+  estadoDia: null, // resumen de registros del dia
 }
 
 // ── Datos ──────────────────────────────────────────────────────────────────
@@ -37,17 +44,20 @@ const ITEMS_SUP = [
 ]
 
 const EQUIPOS_TEMP = [
-  { equipo: 'Refrigerador Grab & Go', min: 0, max: 5, unidad: '°C', correctiva: 'Entre 5°C y 7°C → enfriar / sobre 7°C → mermar' },
-  { equipo: 'Vitrina refrigerada', min: 0, max: 5, unidad: '°C', correctiva: 'Entre 5°C y 7°C → enfriar / sobre 7°C → mermar' },
-  { equipo: 'Congelador 1', min: -99, max: -18, unidad: '°C', correctiva: 'Sobre -12°C → usar productos de inmediato' },
-  { equipo: 'Congelador 2', min: -99, max: -18, unidad: '°C', correctiva: 'Sobre -12°C → usar productos de inmediato' },
-  { equipo: 'Vienesas en mantención (roller)', min: 65, max: 999, unidad: '°C', correctiva: '60°C–65°C → recalentar / bajo 60°C → mermar' },
-  { equipo: 'Vienesas en cocción', min: 74, max: 999, unidad: '°C', correctiva: 'Prolongar cocción hasta alcanzar 74°C' },
-  { equipo: 'Mayonesa en salsera', min: 0, max: 5, unidad: '°C', correctiva: 'Reemplazar producto, mantener cadena de frío' },
-  { equipo: 'Mostaza en salsera', min: 0, max: 5, unidad: '°C', correctiva: 'Reemplazar producto, mantener cadena de frío' },
-  { equipo: 'Ketchup en salsera', min: 0, max: 5, unidad: '°C', correctiva: 'Reemplazar producto, mantener cadena de frío' },
-  { equipo: 'Salsa de ajo en salsera', min: 0, max: 5, unidad: '°C', correctiva: 'Reemplazar producto, mantener cadena de frío' },
+  { equipo: 'Refrigerador Grab & Go', min: 0, max: 5, correctiva: 'Entre 5°C y 7°C → enfriar / sobre 7°C → mermar' },
+  { equipo: 'Vitrina refrigerada', min: 0, max: 5, correctiva: 'Entre 5°C y 7°C → enfriar / sobre 7°C → mermar' },
+  { equipo: 'Congelador 1', min: -99, max: -18, correctiva: 'Sobre -12°C → usar productos de inmediato' },
+  { equipo: 'Congelador 2', min: -99, max: -18, correctiva: 'Sobre -12°C → usar productos de inmediato' },
+  { equipo: 'Vienesas en mantención (roller)', min: 65, max: 999, correctiva: '60°C–65°C → recalentar / bajo 60°C → mermar' },
+  { equipo: 'Vienesas en cocción', min: 74, max: 999, correctiva: 'Prolongar cocción hasta alcanzar 74°C' },
+  { equipo: 'Mayonesa en salsera', min: 0, max: 5, correctiva: 'Reemplazar producto, mantener cadena de frío' },
+  { equipo: 'Mostaza en salsera', min: 0, max: 5, correctiva: 'Reemplazar producto, mantener cadena de frío' },
+  { equipo: 'Ketchup en salsera', min: 0, max: 5, correctiva: 'Reemplazar producto, mantener cadena de frío' },
+  { equipo: 'Salsa de ajo en salsera', min: 0, max: 5, correctiva: 'Reemplazar producto, mantener cadena de frío' },
 ]
+
+const TURNOS = ['Mañana', 'Tarde', 'Noche']
+const TIPOS_BPM = ['manipuladores', 'temperatura', 'superficies']
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function hoy() {
@@ -57,12 +67,17 @@ function hoy() {
   return `${dias[d.getDay()]}, ${d.getDate()} de ${meses[d.getMonth()]} ${d.getFullYear()}`
 }
 
+function fechaHoy() {
+  return new Date().toISOString().split('T')[0]
+}
+
 function horaActual() {
   return new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
 }
 
 function mostrarToast(msg, tipo = 'ok') {
   const t = document.getElementById('toast')
+  if (!t) return
   t.innerHTML = `<i class="ti ${tipo === 'ok' ? 'ti-check' : 'ti-alert-circle'}"></i> ${msg}`
   t.className = `toast show ${tipo === 'error' ? 'error' : ''}`
   setTimeout(() => t.className = 'toast', 3000)
@@ -71,6 +86,119 @@ function mostrarToast(msg, tipo = 'ok') {
 function makeSelectPersonal(todos = false) {
   const lista = todos ? estado.personalTodos : estado.personal
   return lista.map(p => `<option value="${p.nombre}">${p.nombre}</option>`).join('')
+}
+
+function tipoLabel(tipo) {
+  const map = { manipuladores: 'Manipuladores', temperatura: 'Temperatura', superficies: 'Superficies' }
+  return map[tipo] || tipo
+}
+
+// ── Estado del día desde Supabase ──────────────────────────────────────────
+async function cargarEstadoDia() {
+  try {
+    const data = await getHistorial(null)
+    const hoyStr = fechaHoy()
+    const registrosHoy = data.filter(r => r.fecha === hoyStr && TIPOS_BPM.includes(r.tipo))
+    
+    const estado_dia = {}
+    TURNOS.forEach(turno => {
+      estado_dia[turno] = {}
+      TIPOS_BPM.forEach(tipo => {
+        estado_dia[turno][tipo] = registrosHoy.some(r => r.turno === turno && r.tipo === tipo)
+      })
+    })
+    return estado_dia
+  } catch(e) {
+    return null
+  }
+}
+
+function todoCompleto(estadoDia) {
+  if (!estadoDia) return false
+  return TURNOS.every(t => TIPOS_BPM.every(tp => estadoDia[t][tp]))
+}
+
+function pendientesTurno(estadoDia, turno) {
+  if (!estadoDia) return TIPOS_BPM
+  return TIPOS_BPM.filter(tp => !estadoDia[turno][tp])
+}
+
+// ── Pantalla de inicio ─────────────────────────────────────────────────────
+function renderInicio(estadoDia) {
+  const completo = todoCompleto(estadoDia)
+  
+  const turnoActualHora = () => {
+    const h = new Date().getHours()
+    if (h >= 6 && h < 14) return 'Mañana'
+    if (h >= 14 && h < 22) return 'Tarde'
+    return 'Noche'
+  }
+  const turnoActual = turnoActualHora()
+
+  return `
+  <div style="padding:1rem">
+    <div style="background:var(--azul);color:#fff;border-radius:12px;padding:1rem 1.25rem;margin-bottom:1rem">
+      <div style="font-size:12px;opacity:0.8;margin-bottom:2px">${hoy()}</div>
+      <div style="font-size:18px;font-weight:600">Estado del día</div>
+      <div style="font-size:13px;opacity:0.8;margin-top:2px">Pronto Express — EDS 40533</div>
+    </div>
+
+    ${completo ? `
+      <div style="background:var(--verde-claro);border:1px solid var(--verde-borde);border-radius:12px;padding:1rem;margin-bottom:1rem;display:flex;align-items:center;gap:10px">
+        <i class="ti ti-circle-check" style="font-size:24px;color:var(--verde)"></i>
+        <div>
+          <div style="font-weight:600;color:var(--verde)">¡Día completo!</div>
+          <div style="font-size:13px;color:var(--verde)">Todos los registros del día están al día</div>
+        </div>
+      </div>
+    ` : `
+      <div style="background:var(--rojo-claro);border:1px solid var(--rojo-borde);border-radius:12px;padding:1rem;margin-bottom:1rem;display:flex;align-items:center;gap:10px">
+        <i class="ti ti-alert-circle" style="font-size:24px;color:var(--rojo)"></i>
+        <div>
+          <div style="font-weight:600;color:var(--rojo)">Hay registros pendientes</div>
+          <div style="font-size:13px;color:var(--rojo)">Toca un pendiente para ir directo al formulario</div>
+        </div>
+      </div>
+    `}
+
+    ${TURNOS.map(turno => {
+      const pendientes = pendientesTurno(estadoDia, turno)
+      const esTurnoActual = turno === turnoActual
+      return `
+      <div style="background:var(--gris-0);border:1px solid ${esTurnoActual ? 'var(--azul-borde)' : 'var(--gris-borde)'};border-radius:12px;padding:1rem;margin-bottom:0.75rem">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:0.75rem">
+          <div style="font-size:14px;font-weight:600;color:${esTurnoActual ? 'var(--azul)' : 'var(--texto)'}">
+            Turno ${turno}
+          </div>
+          ${esTurnoActual ? '<span style="font-size:11px;background:var(--azul-claro);color:var(--azul);padding:2px 8px;border-radius:20px;font-weight:500">Turno actual</span>' : ''}
+          ${pendientes.length === 0 ? '<span style="margin-left:auto;font-size:11px;background:var(--verde-claro);color:var(--verde);padding:2px 8px;border-radius:20px;font-weight:500"><i class="ti ti-check"></i> Completo</span>' : ''}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${TIPOS_BPM.map(tipo => {
+            const hecho = estadoDia && estadoDia[turno][tipo]
+            return `
+            <div onclick="${!hecho ? `irAFormulario('${turno}','${tipo}')` : ''}" 
+              style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;
+              background:${hecho ? 'var(--verde-claro)' : 'var(--rojo-claro)'};
+              border:1px solid ${hecho ? 'var(--verde-borde)' : 'var(--rojo-borde)'};
+              cursor:${!hecho ? 'pointer' : 'default'}">
+              <i class="ti ${hecho ? 'ti-check' : 'ti-clock'}" style="color:${hecho ? 'var(--verde)' : 'var(--rojo)'}"></i>
+              <span style="font-size:13px;font-weight:500;color:${hecho ? 'var(--verde)' : 'var(--rojo)'};flex:1">${tipoLabel(tipo)}</span>
+              ${!hecho ? '<i class="ti ti-chevron-right" style="color:var(--rojo);font-size:16px"></i>' : ''}
+            </div>`
+          }).join('')}
+        </div>
+      </div>`
+    }).join('')}
+
+    <button onclick="irAFormularios()" style="width:100%;padding:12px;background:var(--azul);border:none;border-radius:var(--radio);color:#fff;font-size:15px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:0.5rem">
+      <i class="ti ti-clipboard-list"></i> Ver todos los formularios
+    </button>
+
+    <button onclick="toggleHistorial()" style="width:100%;padding:10px;background:none;border:1px solid var(--gris-borde-fuerte);border-radius:var(--radio);color:var(--texto-sec);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:0.5rem">
+      <i class="ti ti-history"></i> Ver historial
+    </button>
+  </div>`
 }
 
 // ── Render principal ───────────────────────────────────────────────────────
@@ -82,15 +210,44 @@ function renderApp() {
         <h1>Registros BPM</h1>
         <p>Pronto Express — EDS 40533</p>
       </div>
-      <button class="btn-historial" onclick="toggleHistorial()">
-        <i class="ti ti-history"></i> Historial
+      <button class="btn-historial" onclick="volverInicio()" style="${estado.vistaInicio ? 'display:none' : ''}">
+        <i class="ti ti-home"></i> Inicio
       </button>
     </header>
 
+    ${estado.vistaInicio && !estado.vistaHistorial ? renderInicio(estado.estadoDia) : ''}
+
+    ${estado.vistaHistorial ? renderHistorialPanel() : ''}
+
+    ${!estado.vistaInicio && !estado.vistaHistorial ? renderFormularios() : ''}
+
+    <div class="toast" id="toast"></div>
+  `
+  if (estado.vistaHistorial) cargarHistorial()
+}
+
+function renderHistorialPanel() {
+  return `
+  <div style="padding:1rem">
+    <button onclick="volverInicio()" style="margin-bottom:1rem;padding:8px 12px;background:none;border:1px solid var(--gris-borde-fuerte);border-radius:var(--radio);color:var(--texto-sec);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px">
+      <i class="ti ti-arrow-left"></i> Volver
+    </button>
+    <div class="historial-filtros">
+      ${[null,'manipuladores','temperatura','superficies','recepcion'].map((f,i) => {
+        const labels = ['Todos','Manipuladores','Temperatura','Superficies','Recepción']
+        return `<button class="filtro-btn ${estado.filtroHistorial === f ? 'activo' : ''}" onclick="setFiltroHistorial(${JSON.stringify(f)})">${labels[i]}</button>`
+      }).join('')}
+    </div>
+    <div id="historial-lista"><p class="empty-historial">Cargando historial...</p></div>
+  </div>`
+}
+
+function renderFormularios() {
+  return `
     <div class="meta-bar">
       <span class="fecha-txt"><i class="ti ti-calendar" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>${hoy()}</span>
       <div class="turno-grupo">
-        ${['Mañana','Tarde','Noche'].map(t =>
+        ${TURNOS.map(t =>
           `<button class="turno-btn ${estado.turno === t ? 'activo' : ''}" onclick="setTurno('${t}')">${t[0]}</button>`
         ).join('')}
       </div>
@@ -121,20 +278,7 @@ function renderApp() {
     ${renderTemperatura()}
     ${renderSuperficies()}
     ${renderRecepcion()}
-
-    <div id="historial-panel" class="historial-panel ${estado.vistaHistorial ? 'activo' : ''}">
-      <div class="historial-filtros">
-        ${[null,'manipuladores','temperatura','superficies','recepcion'].map((f,i) => {
-          const labels = ['Todos','Manipuladores','Temperatura','Superficies','Recepción']
-          return `<button class="filtro-btn ${estado.filtroHistorial === f ? 'activo' : ''}" onclick="setFiltroHistorial(${JSON.stringify(f)})">${labels[i]}</button>`
-        }).join('')}
-      </div>
-      <div id="historial-lista"><p class="empty-historial">Cargando historial...</p></div>
-    </div>
-
-    <div class="toast" id="toast"></div>
   `
-  if (estado.vistaHistorial) cargarHistorial()
 }
 
 function renderManipuladores() {
@@ -155,15 +299,16 @@ function renderManipuladores() {
         <i class="ti ti-plus"></i> Agregar otra persona
       </button>
     </div>
-
     <div class="seccion-titulo">Higiene de manipuladores</div>
     <div id="manipuladores-items">
       <div class="empty-msg">Selecciona al menos una persona para continuar</div>
     </div>
-
     <div class="submit-area">
       <button class="btn-guardar" id="btn-guardar-manip" onclick="guardarManip()">
         <i class="ti ti-device-floppy"></i> Guardar registro
+      </button>
+      <button class="btn-guardar" style="flex:0;padding:12px 14px;background:var(--azul-claro);border-color:var(--azul-borde);color:var(--azul)" onclick="imprimirFormulario('manipuladores')">
+        <i class="ti ti-printer"></i>
       </button>
     </div>
   </div>`
@@ -191,10 +336,12 @@ function renderTemperatura() {
         </div>
       </div>`
     }).join('')}
-
     <div class="submit-area">
       <button class="btn-guardar" onclick="guardarTemp()">
         <i class="ti ti-device-floppy"></i> Guardar registro
+      </button>
+      <button class="btn-guardar" style="flex:0;padding:12px 14px;background:var(--azul-claro);border-color:var(--azul-borde);color:var(--azul)" onclick="imprimirFormulario('temperatura')">
+        <i class="ti ti-printer"></i>
       </button>
     </div>
   </div>`
@@ -213,11 +360,14 @@ function renderSuperficies() {
       <button class="btn-guardar" onclick="guardarSup()">
         <i class="ti ti-device-floppy"></i> Guardar registro
       </button>
+      <button class="btn-guardar" style="flex:0;padding:12px 14px;background:var(--azul-claro);border-color:var(--azul-borde);color:var(--azul)" onclick="imprimirFormulario('superficies')">
+        <i class="ti ti-printer"></i>
+      </button>
     </div>
   </div>`
 }
 
-function renderCNItem(item, i) {
+function renderCNItem(item) {
   return `
   <div class="card" data-item="${item.label}" data-seccion="${item.seccion}">
     <div class="card-label">${item.label}</div>
@@ -249,15 +399,11 @@ function renderRecepcion() {
         </div>
       </div>
     </div>
-
     <div class="seccion-titulo">Productos recibidos</div>
-    <div id="productos-lista">
-      ${renderProducto(1)}
-    </div>
+    <div id="productos-lista">${renderProducto(1)}</div>
     <button class="btn-agregar-producto" onclick="agregarProducto()">
       <i class="ti ti-plus"></i> Agregar otro producto
     </button>
-
     <div class="seccion-titulo">Responsable de recepción</div>
     <div class="card">
       <select id="rec-responsable" style="width:100%;font-size:14px;padding:8px 10px;border:1px solid var(--gris-borde);border-radius:var(--radio);background:var(--gris-1);color:var(--texto)">
@@ -265,10 +411,12 @@ function renderRecepcion() {
         ${makeSelectPersonal(true)}
       </select>
     </div>
-
     <div class="submit-area">
       <button class="btn-guardar" onclick="guardarRec()">
         <i class="ti ti-device-floppy"></i> Guardar registro
+      </button>
+      <button class="btn-guardar" style="flex:0;padding:12px 14px;background:var(--azul-claro);border-color:var(--azul-borde);color:var(--azul)" onclick="imprimirFormulario('recepcion')">
+        <i class="ti ti-printer"></i>
       </button>
     </div>
   </div>`
@@ -293,16 +441,109 @@ function renderProducto(n) {
   </div>`
 }
 
+// ── Validaciones ───────────────────────────────────────────────────────────
+function validarManip() {
+  const personas = []
+  document.querySelectorAll('#personal-lista select').forEach(s => {
+    if (s.value && !personas.includes(s.value)) personas.push(s.value)
+  })
+  if (personas.length === 0) { mostrarToast('Selecciona al menos una persona en turno', 'error'); return false }
+
+  const cards = document.querySelectorAll('#manipuladores-items .card[data-persona]')
+  if (cards.length === 0) { mostrarToast('Selecciona al menos una persona para continuar', 'error'); return false }
+
+  let falta = false
+  cards.forEach(card => {
+    const activo = card.querySelector('.cn-btn.cumple,.cn-btn.nocumple,.cn-btn.na')
+    if (!activo) { card.style.border = '1px solid var(--rojo)'; falta = true }
+    else card.style.border = ''
+  })
+  if (falta) { mostrarToast('Debes marcar todos los ítems antes de guardar', 'error'); return false }
+  if (!estado.responsable) { mostrarToast('Selecciona el responsable del turno', 'error'); return false }
+  return true
+}
+
+function validarTemp() {
+  if (!estado.responsable) { mostrarToast('Selecciona el responsable del turno', 'error'); return false }
+  let falta = false
+  EQUIPOS_TEMP.forEach((eq, i) => {
+    const input = document.getElementById(`temp-${i}`)
+    if (!input || input.value === '') {
+      if (input) input.style.borderColor = 'var(--rojo)'
+      falta = true
+    } else {
+      if (input) input.style.borderColor = ''
+    }
+  })
+  if (falta) { mostrarToast('Debes ingresar temperatura en todos los equipos', 'error'); return false }
+  return true
+}
+
+function validarSup() {
+  if (!estado.responsable) { mostrarToast('Selecciona el responsable del turno', 'error'); return false }
+  let falta = false
+  document.querySelectorAll('#tab-superficies .card[data-item]').forEach(card => {
+    const activo = card.querySelector('.cn-btn.cumple,.cn-btn.nocumple,.cn-btn.na')
+    if (!activo) { card.style.border = '1px solid var(--rojo)'; falta = true }
+    else card.style.border = ''
+  })
+  if (falta) { mostrarToast('Debes marcar todos los ítems antes de guardar', 'error'); return false }
+  return true
+}
+
 // ── Acciones UI ────────────────────────────────────────────────────────────
-window.setTurno = (t) => { estado.turno = t; renderApp() }
+window.setTurno = (t) => {
+  estado.turno = t
+  document.querySelectorAll('.turno-btn').forEach(b => b.classList.remove('activo'))
+  document.querySelectorAll('.turno-btn').forEach(b => {
+    if (b.textContent.trim() === t[0]) b.classList.add('activo')
+  })
+}
+
 window.setTab = (t) => {
   estado.tabActiva = t
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('activo'))
   document.querySelectorAll('.tab-content').forEach(s => s.classList.remove('activo'))
-  document.querySelector(`.tab-btn[onclick="setTab('${t}')"]`).classList.add('activo')
-  document.getElementById(`tab-${t}`).classList.add('activo')
+  const tabBtn = document.querySelector(`.tab-btn[onclick="setTab('${t}')"]`)
+  if (tabBtn) tabBtn.classList.add('activo')
+  const tabContent = document.getElementById(`tab-${t}`)
+  if (tabContent) tabContent.classList.add('activo')
 }
+
 window.setResponsable = (v) => { estado.responsable = v }
+
+window.volverInicio = async () => {
+  estado.vistaInicio = true
+  estado.vistaHistorial = false
+  renderApp()
+  estado.estadoDia = await cargarEstadoDia()
+  renderApp()
+}
+
+window.irAFormularios = () => {
+  estado.vistaInicio = false
+  estado.vistaHistorial = false
+  renderApp()
+}
+
+window.irAFormulario = (turno, tipo) => {
+  estado.turno = turno
+  estado.tabActiva = tipo
+  estado.vistaInicio = false
+  estado.vistaHistorial = false
+  renderApp()
+}
+
+window.toggleHistorial = () => {
+  estado.vistaHistorial = true
+  estado.vistaInicio = false
+  renderApp()
+}
+
+window.setFiltroHistorial = (f) => {
+  estado.filtroHistorial = f
+  renderApp()
+}
 
 window.setCN = (btn, tipo) => {
   const row = btn.closest('.cn-row')
@@ -310,17 +551,19 @@ window.setCN = (btn, tipo) => {
   btn.classList.add(tipo)
   const corr = btn.closest('.card').querySelector('.correctiva')
   corr.classList.toggle('visible', tipo === 'nocumple')
+  btn.closest('.card').style.border = ''
 }
 
 window.checkTemp = (input, min, max, badgeId, corrId) => {
   const v = parseFloat(input.value)
   const badge = document.getElementById(badgeId)
   const corr = document.getElementById(corrId)
-  if (isNaN(v)) { badge.textContent = ''; badge.className = 'temp-badge'; corr.classList.remove('visible'); return }
+  input.style.borderColor = ''
+  if (isNaN(v)) { badge.textContent = ''; badge.className = 'temp-badge'; if (corr) corr.classList.remove('visible'); return }
   const ok = v >= min && v <= max
   badge.textContent = ok ? 'OK' : 'Fuera de rango'
   badge.className = `temp-badge ${ok ? 'ok' : 'mal'}`
-  corr.classList.toggle('visible', !ok)
+  if (corr) corr.classList.toggle('visible', !ok)
 }
 
 window.agregarPersonaFila = () => {
@@ -376,52 +619,34 @@ window.agregarProducto = () => {
   lista.insertAdjacentHTML('beforeend', renderProducto(estado.prodCount))
 }
 
-window.toggleHistorial = () => {
-  estado.vistaHistorial = !estado.vistaHistorial
-  renderApp()
-}
-
-window.setFiltroHistorial = (f) => {
-  estado.filtroHistorial = f
-  renderApp()
+window.imprimirFormulario = (tipo) => {
+  window.print()
 }
 
 // ── Guardar ────────────────────────────────────────────────────────────────
 window.guardarManip = async () => {
-  if (!estado.responsable) { mostrarToast('Selecciona el responsable del turno', 'error'); return }
+  if (!validarManip()) return
   const cards = document.querySelectorAll('#manipuladores-items .card[data-persona]')
-  if (cards.length === 0) { mostrarToast('Selecciona al menos una persona', 'error'); return }
-
   const items = []
   cards.forEach(card => {
     const activo = card.querySelector('.cn-btn.cumple,.cn-btn.nocumple,.cn-btn.na')
     const resultado = activo?.classList.contains('cumple') ? 'C' : activo?.classList.contains('nocumple') ? 'NC' : 'NA'
-    items.push({
-      persona: card.dataset.persona,
-      item: card.dataset.item,
-      resultado: resultado || 'NA',
-      accion_correctiva: card.querySelector('.correctiva textarea')?.value || null
-    })
+    items.push({ persona: card.dataset.persona, item: card.dataset.item, resultado, accion_correctiva: card.querySelector('.correctiva textarea')?.value || null })
   })
-
   const btn = document.getElementById('btn-guardar-manip')
-  btn.classList.add('guardando')
-  btn.innerHTML = '<i class="ti ti-loader"></i> Guardando...'
-  btn.disabled = true
-
+  if (btn) { btn.classList.add('guardando'); btn.innerHTML = '<i class="ti ti-loader"></i> Guardando...'; btn.disabled = true }
   try {
     await guardarManipuladores({ turno: estado.turno, responsable: estado.responsable, items })
     mostrarToast(`Registro guardado — ${horaActual()}`)
+    setTimeout(async () => { await window.volverInicio() }, 1500)
   } catch(e) {
     mostrarToast('Error al guardar. Verifica la conexión.', 'error')
   }
-  btn.classList.remove('guardando')
-  btn.innerHTML = '<i class="ti ti-device-floppy"></i> Guardar registro'
-  btn.disabled = false
+  if (btn) { btn.classList.remove('guardando'); btn.innerHTML = '<i class="ti ti-device-floppy"></i> Guardar registro'; btn.disabled = false }
 }
 
 window.guardarTemp = async () => {
-  if (!estado.responsable) { mostrarToast('Selecciona el responsable del turno', 'error'); return }
+  if (!validarTemp()) return
   const items = EQUIPOS_TEMP.map((eq, i) => {
     const input = document.getElementById(`temp-${i}`)
     const v = parseFloat(input?.value)
@@ -432,16 +657,16 @@ window.guardarTemp = async () => {
   try {
     await guardarTemperaturas({ turno: estado.turno, responsable: estado.responsable, items })
     mostrarToast(`Registro guardado — ${horaActual()}`)
+    setTimeout(async () => { await window.volverInicio() }, 1500)
   } catch(e) {
     mostrarToast('Error al guardar. Verifica la conexión.', 'error')
   }
 }
 
 window.guardarSup = async () => {
-  if (!estado.responsable) { mostrarToast('Selecciona el responsable del turno', 'error'); return }
+  if (!validarSup()) return
   const items = []
-  document.querySelectorAll('#tab-superficies .card').forEach(card => {
-    if (!card.dataset.item) return
+  document.querySelectorAll('#tab-superficies .card[data-item]').forEach(card => {
     const activo = card.querySelector('.cn-btn.cumple,.cn-btn.nocumple,.cn-btn.na')
     const resultado = activo?.classList.contains('cumple') ? 'C' : activo?.classList.contains('nocumple') ? 'NC' : 'NA'
     items.push({ item: card.dataset.item, seccion: card.dataset.seccion, resultado: resultado || 'NA', accion_correctiva: card.querySelector('.correctiva textarea')?.value || null })
@@ -449,6 +674,7 @@ window.guardarSup = async () => {
   try {
     await guardarSuperficies({ turno: estado.turno, responsable: estado.responsable, items })
     mostrarToast(`Registro guardado — ${horaActual()}`)
+    setTimeout(async () => { await window.volverInicio() }, 1500)
   } catch(e) {
     mostrarToast('Error al guardar. Verifica la conexión.', 'error')
   }
@@ -457,34 +683,17 @@ window.guardarSup = async () => {
 window.guardarRec = async () => {
   const responsable = document.getElementById('rec-responsable')?.value
   if (!responsable) { mostrarToast('Selecciona el responsable de recepción', 'error'); return }
-
   const productos = []
   document.querySelectorAll('.producto-card').forEach(card => {
     const inputs = card.querySelectorAll('input')
     const selects = card.querySelectorAll('select')
     const fv = inputs[3]?.value
     if (!fv) return
-    productos.push({
-      producto: inputs[0]?.value || '—',
-      temperatura: parseFloat(inputs[1]?.value) || null,
-      fechaElaboracion: inputs[2]?.value || null,
-      fechaVencimiento: fv,
-      estadoEmpaque: selects[0]?.value || null,
-      decision: selects[1]?.value || 'Acepta'
-    })
+    productos.push({ producto: inputs[0]?.value || '—', temperatura: parseFloat(inputs[1]?.value) || null, fechaElaboracion: inputs[2]?.value || null, fechaVencimiento: fv, estadoEmpaque: selects[0]?.value || null, decision: selects[1]?.value || 'Acepta' })
   })
-
   if (productos.length === 0) { mostrarToast('Ingresa al menos un producto con fecha de vencimiento', 'error'); return }
-
   try {
-    await guardarRecepcion({
-      responsable,
-      proveedor: document.getElementById('rec-proveedor')?.value,
-      nFactura: document.getElementById('rec-factura')?.value,
-      patenteCamion: document.getElementById('rec-patente')?.value,
-      higieneCamion: document.getElementById('rec-higiene')?.value,
-      productos
-    })
+    await guardarRecepcion({ responsable, proveedor: document.getElementById('rec-proveedor')?.value, nFactura: document.getElementById('rec-factura')?.value, patenteCamion: document.getElementById('rec-patente')?.value, higieneCamion: document.getElementById('rec-higiene')?.value, productos })
     mostrarToast(`Recepción guardada — ${horaActual()}`)
   } catch(e) {
     mostrarToast('Error al guardar. Verifica la conexión.', 'error')
@@ -497,17 +706,14 @@ async function cargarHistorial() {
   if (!lista) return
   try {
     const data = await getHistorial(estado.filtroHistorial)
-    if (data.length === 0) {
-      lista.innerHTML = '<p class="empty-historial">No hay registros en los últimos 3 meses</p>'
-      return
-    }
+    if (data.length === 0) { lista.innerHTML = '<p class="empty-historial">No hay registros en los últimos 3 meses</p>'; return }
     const tipos = { manipuladores: 'Manipuladores', temperatura: 'Temperatura', superficies: 'Superficies', recepcion: 'Recepción' }
     lista.innerHTML = data.map(r => `
       <div class="historial-item">
         <div class="nc-dot ${r.tiene_nc ? 'tiene-nc' : ''}"></div>
         <div class="info">
           <strong>${tipos[r.tipo] || r.tipo} — ${r.turno}</strong>
-          <span>${new Date(r.fecha).toLocaleDateString('es-CL')} · ${r.responsable} ${r.tiene_nc ? '· <span style="color:var(--rojo)">Con NC</span>' : ''}</span>
+          <span>${new Date(r.fecha+'T12:00:00').toLocaleDateString('es-CL')} · ${r.responsable} ${r.tiene_nc ? '· <span style="color:var(--rojo)">Con NC</span>' : ''}</span>
         </div>
       </div>`).join('')
   } catch(e) {
@@ -522,9 +728,7 @@ async function init() {
     const todos = await getPersonal()
     estado.personal = todos.filter(p => p.rol !== 'supervisora')
     estado.personalTodos = todos
-    renderApp()
   } catch(e) {
-    // Sin conexión a Supabase: usar lista hardcodeada para demo
     estado.personal = [
       { nombre: 'Zoila Caimanque', rol: 'tienda' },
       { nombre: 'Vianca Rivera', rol: 'tienda' },
@@ -532,12 +736,10 @@ async function init() {
       { nombre: 'Gabriela Lara', rol: 'tienda' },
       { nombre: 'Vanessa Guerrero', rol: 'tienda' },
     ]
-    estado.personalTodos = [
-      { nombre: 'María Luisa Acuña', rol: 'supervisora' },
-      ...estado.personal
-    ]
-    renderApp()
+    estado.personalTodos = [{ nombre: 'María Luisa Acuña', rol: 'supervisora' }, ...estado.personal]
   }
+  estado.estadoDia = await cargarEstadoDia()
+  renderApp()
 }
 
 init()
