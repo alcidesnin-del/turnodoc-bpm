@@ -29,15 +29,16 @@ export async function getPersonal(rol = null) {
 }
 
 // Guardar registro de manipuladores
-export async function guardarManipuladores({ turno, responsable, items }) {
+export async function guardarManipuladores({ turno, responsable, items, fecha }) {
   const edsId = await getEdsId()
+  const fechaRegistro = fecha || new Date().toISOString().split('T')[0]
 
   const { data: registro, error } = await supabase
     .from('registros_bpm')
     .insert({
       eds_id: edsId,
       tipo: 'manipuladores',
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: fechaRegistro,
       turno,
       responsable,
       tiene_nc: items.some(i => i.resultado === 'NC')
@@ -64,15 +65,16 @@ export async function guardarManipuladores({ turno, responsable, items }) {
 }
 
 // Guardar registro de temperaturas
-export async function guardarTemperaturas({ turno, responsable, items }) {
+export async function guardarTemperaturas({ turno, responsable, items, fecha }) {
   const edsId = await getEdsId()
+  const fechaRegistro = fecha || new Date().toISOString().split('T')[0]
 
   const { data: registro, error } = await supabase
     .from('registros_bpm')
     .insert({
       eds_id: edsId,
       tipo: 'temperatura',
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: fechaRegistro,
       turno,
       responsable,
       tiene_nc: items.some(i => i.resultado === 'FUERA_RANGO')
@@ -101,15 +103,16 @@ export async function guardarTemperaturas({ turno, responsable, items }) {
 }
 
 // Guardar registro de superficies
-export async function guardarSuperficies({ turno, responsable, items }) {
+export async function guardarSuperficies({ turno, responsable, items, fecha }) {
   const edsId = await getEdsId()
+  const fechaRegistro = fecha || new Date().toISOString().split('T')[0]
 
   const { data: registro, error } = await supabase
     .from('registros_bpm')
     .insert({
       eds_id: edsId,
       tipo: 'superficies',
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: fechaRegistro,
       turno,
       responsable,
       tiene_nc: items.some(i => i.resultado === 'NC')
@@ -136,15 +139,16 @@ export async function guardarSuperficies({ turno, responsable, items }) {
 }
 
 // Guardar registro de recepción
-export async function guardarRecepcion({ responsable, proveedor, nFactura, patenteCamion, higieneCamion, productos }) {
+export async function guardarRecepcion({ responsable, proveedor, nFactura, patenteCamion, higieneCamion, productos, fecha }) {
   const edsId = await getEdsId()
+  const fechaRegistro = fecha || new Date().toISOString().split('T')[0]
 
   const { data: registro, error } = await supabase
     .from('registros_bpm')
     .insert({
       eds_id: edsId,
       tipo: 'recepcion',
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: fechaRegistro,
       turno: '—',
       responsable,
       tiene_nc: productos.some(p => p.decision === 'Rechaza')

@@ -267,6 +267,15 @@ function renderFormularios() {
 function renderManipuladores() {
   return `
   <div class="tab-content ${estado.tabActiva === 'manipuladores' ? 'activo' : ''}" id="tab-manipuladores">
+    <div style="background:#FEF3C7;border:1.5px solid #F59E0B;border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:12px">
+      <i class="ti ti-calendar" style="font-size:18px;color:#D97706;flex-shrink:0"></i>
+      <div style="flex:1">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#92400E;margin-bottom:4px">Fecha del registro</div>
+        <input type="date" id="fecha-manip" value="${fechaHoy()}" max="${fechaHoy()}"
+          style="border:1.5px solid #F59E0B;border-radius:6px;padding:6px 10px;font-size:14px;font-weight:600;color:#92400E;background:white;width:100%">
+      </div>
+      <div style="font-size:11px;color:#B45309;text-align:right;max-width:120px;line-height:1.3">Cambia si estás llenando un día anterior</div>
+    </div>
     <div class="seccion-titulo">Personal en turno</div>
     <div class="card">
       <div class="persona-selector" id="personal-lista">
@@ -292,6 +301,15 @@ function renderManipuladores() {
 function renderTemperatura() {
   return `
   <div class="tab-content ${estado.tabActiva === 'temperatura' ? 'activo' : ''}" id="tab-temperatura">
+    <div style="background:#FEF3C7;border:1.5px solid #F59E0B;border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:12px">
+      <i class="ti ti-calendar" style="font-size:18px;color:#D97706;flex-shrink:0"></i>
+      <div style="flex:1">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#92400E;margin-bottom:4px">Fecha del registro</div>
+        <input type="date" id="fecha-temp" value="${fechaHoy()}" max="${fechaHoy()}"
+          style="border:1.5px solid #F59E0B;border-radius:6px;padding:6px 10px;font-size:14px;font-weight:600;color:#92400E;background:white;width:100%">
+      </div>
+      <div style="font-size:11px;color:#B45309;text-align:right;max-width:120px;line-height:1.3">Cambia si estás llenando un día anterior</div>
+    </div>
     <div class="seccion-titulo">Equipos y alimentos</div>
     ${EQUIPOS_TEMP.map((eq, i) => {
       const rango = eq.max === 999 ? `≥ ${eq.min}°C` : eq.min === -99 ? `≤ ${eq.max}°C` : `${eq.min}°C – ${eq.max}°C`
@@ -317,6 +335,15 @@ function renderTemperatura() {
 function renderSuperficies() {
   return `
   <div class="tab-content ${estado.tabActiva === 'superficies' ? 'activo' : ''}" id="tab-superficies">
+    <div style="background:#FEF3C7;border:1.5px solid #F59E0B;border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:12px">
+      <i class="ti ti-calendar" style="font-size:18px;color:#D97706;flex-shrink:0"></i>
+      <div style="flex:1">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#92400E;margin-bottom:4px">Fecha del registro</div>
+        <input type="date" id="fecha-sup" value="${fechaHoy()}" max="${fechaHoy()}"
+          style="border:1.5px solid #F59E0B;border-radius:6px;padding:6px 10px;font-size:14px;font-weight:600;color:#92400E;background:white;width:100%">
+      </div>
+      <div style="font-size:11px;color:#B45309;text-align:right;max-width:120px;line-height:1.3">Cambia si estás llenando un día anterior</div>
+    </div>
     <div class="seccion-titulo">Limpieza y sanitización</div>
     ${ITEMS_SUP.filter(i => i.seccion === 'limpieza').map(renderCNItem).join('')}
     <div class="seccion-titulo">Manejo de desechos</div>
@@ -347,6 +374,15 @@ function renderCNItem(item) {
 function renderRecepcion() {
   return `
   <div class="tab-content ${estado.tabActiva === 'recepcion' ? 'activo' : ''}" id="tab-recepcion">
+    <div style="background:#FEF3C7;border:1.5px solid #F59E0B;border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:12px">
+      <i class="ti ti-calendar" style="font-size:18px;color:#D97706;flex-shrink:0"></i>
+      <div style="flex:1">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#92400E;margin-bottom:4px">Fecha del registro</div>
+        <input type="date" id="fecha-rec" value="${fechaHoy()}" max="${fechaHoy()}"
+          style="border:1.5px solid #F59E0B;border-radius:6px;padding:6px 10px;font-size:14px;font-weight:600;color:#92400E;background:white;width:100%">
+      </div>
+      <div style="font-size:11px;color:#B45309;text-align:right;max-width:120px;line-height:1.3">Cambia si estás llenando un día anterior</div>
+    </div>
     <div class="seccion-titulo">Datos del proveedor</div>
     <div class="card">
       <div class="grid-2">
@@ -562,7 +598,7 @@ window.guardarManip = async () => {
   const btn = document.getElementById('btn-guardar-manip')
   if (btn) { btn.classList.add('guardando'); btn.innerHTML = '<i class="ti ti-loader"></i> Guardando...'; btn.disabled = true }
   try {
-    await guardarManipuladores({ turno: estado.turno, responsable: estado.responsable, items })
+    await guardarManipuladores({ turno: estado.turno, responsable: estado.responsable, items, fecha: document.getElementById('fecha-manip')?.value || null })
     mostrarToast(`Registro guardado — ${horaActual()}`)
     setTimeout(async () => { await window.volverInicio() }, 1500)
   } catch(e) { mostrarToast('Error al guardar. Verifica la conexión.', 'error') }
@@ -579,7 +615,7 @@ window.guardarTemp = async () => {
     return { equipo: eq.equipo, rango_min: eq.min === -99 ? null : eq.min, rango_max: eq.max === 999 ? null : eq.max, temperatura: isNaN(v) ? null : v, resultado, accion_correctiva: corr || null }
   })
   try {
-    await guardarTemperaturas({ turno: estado.turno, responsable: estado.responsable, items })
+    await guardarTemperaturas({ turno: estado.turno, responsable: estado.responsable, items, fecha: document.getElementById('fecha-temp')?.value || null })
     mostrarToast(`Registro guardado — ${horaActual()}`)
     setTimeout(async () => { await window.volverInicio() }, 1500)
   } catch(e) { mostrarToast('Error al guardar. Verifica la conexión.', 'error') }
@@ -594,7 +630,7 @@ window.guardarSup = async () => {
     items.push({ item: card.dataset.item, seccion: card.dataset.seccion, resultado: resultado || 'NA', accion_correctiva: card.querySelector('.correctiva textarea')?.value || null })
   })
   try {
-    await guardarSuperficies({ turno: estado.turno, responsable: estado.responsable, items })
+    await guardarSuperficies({ turno: estado.turno, responsable: estado.responsable, items, fecha: document.getElementById('fecha-sup')?.value || null })
     mostrarToast(`Registro guardado — ${horaActual()}`)
     setTimeout(async () => { await window.volverInicio() }, 1500)
   } catch(e) { mostrarToast('Error al guardar. Verifica la conexión.', 'error') }
@@ -613,7 +649,7 @@ window.guardarRec = async () => {
   })
   if (productos.length === 0) { mostrarToast('Ingresa al menos un producto con fecha de vencimiento', 'error'); return }
   try {
-    await guardarRecepcion({ responsable, proveedor: document.getElementById('rec-proveedor')?.value, nFactura: document.getElementById('rec-factura')?.value, patenteCamion: document.getElementById('rec-patente')?.value, higieneCamion: document.getElementById('rec-higiene')?.value, productos })
+    await guardarRecepcion({ responsable, proveedor: document.getElementById('rec-proveedor')?.value, nFactura: document.getElementById('rec-factura')?.value, patenteCamion: document.getElementById('rec-patente')?.value, higieneCamion: document.getElementById('rec-higiene')?.value, productos, fecha: document.getElementById('fecha-rec')?.value || null })
     mostrarToast(`Recepción guardada — ${horaActual()}`)
   } catch(e) { mostrarToast('Error al guardar. Verifica la conexión.', 'error') }
 }
