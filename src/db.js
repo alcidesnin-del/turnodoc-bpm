@@ -180,7 +180,49 @@ export async function guardarRecepcion({ responsable, proveedor, nFactura, paten
   return registro
 }
 
-// Obtener historial de los últimos 3 meses
+// Obtener días con registros incompletos en los últimos N días
+export async function getDiasPendientes(diasAtras = 30) {
+  const edsId = await getEdsId()
+  const hoy = new Date()
+  const desde = new Date(hoy)
+  desde.setDate(desde.getDate() - diasAtras)
+
+  const fechaDesde = desde.toISOString().split('T')[0]
+  const fechaHoy = hoy.toISOString().split('T')[0]
+
+  // Obtener todos los registros del período
+  const { data: registros } = await supabase
+    .from('registros_bpm')
+    .select('fecha, tipo')
+    .eq('eds_id', edsId)
+    .gte('fecha', fechaDesde)
+    .lte('fecha', fechaHoy)
+
+  // Agrupar tipos registrados por fecha
+  const porFecha = {}
+  ;(registros || []).forEach(r => {
+    if (!porFecha[r.fecha]) porFecha[r.fecha] = new Set()
+    porFecha[r.fecha].add(r.tipo)
+  })
+
+  // Generar lista de días hábiles (lunes a sábado, excluir domingos)
+  const TIPOS_OBLIGATORIOS = ['manipuladores', 'temperatura', 'superficies']
+  const pendientes = []
+  const cursor = new Date(desde)
+
+  while (cursor <= hoy) {
+    const fechaStr = cursor.toISOString().split('T')[0]
+    const tiposDelDia = porFecha[fechaStr] || new Set()
+    const faltantes = TIPOS_OBLIGATORIOS.filter(t => !tiposDelDia.has(t))
+    if (faltantes.length > 0) {
+      pendientes.push({ fecha: fechaStr, faltantes })
+    }
+    cursor.setDate(cursor.getDate() + 1)
+  }
+
+  return pendientes
+}
+
 export async function getHistorial(tipo = null) {
   let query = supabase
     .from('historial_bpm')

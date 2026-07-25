@@ -1,4 +1,4 @@
-import { getPersonal, guardarManipuladores, guardarTemperaturas, guardarSuperficies, guardarRecepcion, getHistorial, getRegistrosDia, getRegistrosPeriodo } from './db.js'
+import { getPersonal, guardarManipuladores, guardarTemperaturas, guardarSuperficies, guardarRecepcion, getHistorial, getRegistrosDia, getRegistrosPeriodo, getDiasPendientes } from './db.js'
 import { generarPDFDia, generarPDFPeriodo } from './pdf.js'
 
 const estado = {
@@ -12,6 +12,8 @@ const estado = {
   personalTodos: [],
   prodCount: 1,
   estadoDia: null,
+  diasPendientes: [],
+  mostrarAlertaPendientes: false,
 }
 
 const ITEMS_MANIP = [
@@ -179,6 +181,37 @@ function renderInicio(estadoDia) {
     <button onclick="toggleHistorial()" style="width:100%;padding:10px;background:none;border:1px solid var(--gris-borde-fuerte);border-radius:var(--radio);color:var(--texto-sec);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:0.5rem">
       <i class="ti ti-history"></i> Historial y descarga PDF
     </button>
+
+    ${estado.mostrarAlertaPendientes ? `
+    <div style="margin-top:1rem;background:#FEF2F2;border:1.5px solid #FECACA;border-radius:12px;padding:1rem">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:0.75rem">
+        <i class="ti ti-alert-triangle" style="font-size:20px;color:#DC2626;flex-shrink:0"></i>
+        <div>
+          <div style="font-weight:700;color:#991B1B;font-size:14px">Días con registros incompletos</div>
+          <div style="font-size:12px;color:#B91C1C">Últimos 30 días (excluyendo domingos)</div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${estado.diasPendientes.slice(0, 10).map(p => {
+          const d = new Date(p.fecha + 'T12:00:00')
+          const nombreDia = d.toLocaleDateString('es-CL', { weekday: 'long' })
+          const fechaLeg = d.toLocaleDateString('es-CL', { day: 'numeric', month: 'long' })
+          const faltaLabels = p.faltantes.map(f => f === 'manipuladores' ? 'Manip.' : f === 'temperatura' ? 'Temp.' : 'Superf.').join(', ')
+          return `<div style="display:flex;align-items:center;justify-content:space-between;background:white;border:1px solid #FECACA;border-radius:8px;padding:8px 12px">
+            <div>
+              <div style="font-size:13px;font-weight:600;color:#7F1D1D;text-transform:capitalize">${nombreDia} ${fechaLeg}</div>
+              <div style="font-size:11px;color:#B91C1C">Falta: ${faltaLabels}</div>
+            </div>
+            <button onclick="irAFechaPendiente('${p.fecha}')"
+              style="padding:5px 10px;font-size:11px;font-weight:700;background:#DC2626;color:white;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">
+              Llenar ahora
+            </button>
+          </div>`
+        }).join('')}
+        ${estado.diasPendientes.length > 10 ? `<div style="text-align:center;font-size:12px;color:#B91C1C">...y ${estado.diasPendientes.length - 10} días más</div>` : ''}
+      </div>
+    </div>` : ''}
+
   </div>`
 }
 
@@ -486,6 +519,20 @@ window.volverInicio = async () => {
   estado.estadoDia = await cargarEstadoDia(); renderApp()
 }
 
+window.irAFechaPendiente = (fecha) => {
+  estado.vistaInicio = false
+  estado.vistaHistorial = false
+  estado.tabActiva = 'manipuladores'
+  renderApp()
+  // Pre-seleccionar la fecha en todos los selectores
+  setTimeout(() => {
+    ['fecha-manip', 'fecha-temp', 'fecha-sup', 'fecha-rec'].forEach(id => {
+      const el = document.getElementById(id)
+      if (el) el.value = fecha
+    })
+  }, 100)
+}
+
 window.irAFormularios = () => { estado.vistaInicio = false; estado.vistaHistorial = false; renderApp() }
 window.irAFormulario = (turno, tipo) => { estado.turno = turno; estado.tabActiva = tipo; estado.vistaInicio = false; estado.vistaHistorial = false; renderApp() }
 window.toggleHistorial = () => { estado.vistaHistorial = true; estado.vistaInicio = false; renderApp() }
@@ -717,6 +764,19 @@ async function init() {
     estado.personalTodos = [{ nombre: 'María Luisa Acuña', rol: 'supervisora' }, ...estado.personal]
   }
   estado.estadoDia = await cargarEstadoDia()
+
+  // Cargar días pendientes de los últimos 30 días
+  try {
+    const pendientes = await getDiasPendientes(30)
+    // Excluir hoy (ya se muestra en el estado del día)
+    const hoyStr = fechaHoy()
+    estado.diasPendientes = pendientes.filter(p => p.fecha !== hoyStr)
+    estado.mostrarAlertaPendientes = estado.diasPendientes.length > 0
+  } catch(e) {
+    estado.diasPendientes = []
+    estado.mostrarAlertaPendientes = false
+  }
+
   renderApp()
 }
 
