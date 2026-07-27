@@ -860,7 +860,7 @@ function programarAlertas() {
 // El correo se envía cuando cierra una ventana sin registro
 // ─────────────────────────────────────────────
 const CORREO_SUPERVISOR = 'alcidesnin@gmail.com'
-const RESEND_API_KEY = import.meta.env.VITE_RESEND_API_KEY || ''
+const RESEND_API_KEY = '' // Se configura con variable de entorno o aquí directamente
 
 async function enviarCorreoEscalamiento(bloque, fecha) {
   if (!RESEND_API_KEY) {
@@ -875,7 +875,7 @@ async function enviarCorreoEscalamiento(bloque, fecha) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'TurnoDoc BPM <onboarding@resend.dev>',
+        from: 'TurnoDoc BPM <alertas@turnodoc.cl>',
         to: [CORREO_SUPERVISOR],
         subject: `⚠️ TurnoDoc: Formularios sin completar — Turno ${bloque} del ${fecha}`,
         html: `
@@ -944,11 +944,24 @@ function programarVerificacionesCierre() {
 // ─────────────────────────────────────────────
 window.verPanelSupervision = async () => {
   const panel = document.getElementById('panel-supervision')
-  if (panel) {
-    panel.style.display = panel.style.display === 'none' ? 'block' : 'none'
-    if (panel.style.display === 'block') await renderPanelSupervision()
+  if (!panel) return
+
+  // Si ya está visible, solo ocultar
+  if (panel.style.display === 'block') {
+    panel.style.display = 'none'
     return
   }
+
+  // Pedir clave de acceso
+  const clave = prompt('Panel de supervisión — Ingresa la clave de acceso:')
+  if (clave === null) return // canceló
+  if (clave !== '40533') {
+    alert('Clave incorrecta. Acceso denegado.')
+    return
+  }
+
+  panel.style.display = 'block'
+  await renderPanelSupervision()
 }
 
 async function renderPanelSupervision() {
