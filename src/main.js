@@ -1,4 +1,4 @@
-import { getPersonal, guardarManipuladores, guardarTemperaturas, guardarSuperficies, guardarRecepcion, getHistorial, getRegistrosDia, getRegistrosPeriodo, getDiasPendientes } from './db.js'
+import { getPersonal, guardarManipuladores, guardarTemperaturas, guardarSuperficies, guardarRecepcion, getHistorial, getRegistrosDia, getRegistrosPeriodo, getDiasPendientes, getEstadoDia, getPanelSupervision, BLOQUES, getBloqueActual, esRetroactivo } from './db.js'
 import { generarPDFDia, generarPDFPeriodo } from './pdf.js'
 
 const estado = {
@@ -181,6 +181,10 @@ function renderInicio(estadoDia) {
     <button onclick="toggleHistorial()" style="width:100%;padding:10px;background:none;border:1px solid var(--gris-borde-fuerte);border-radius:var(--radio);color:var(--texto-sec);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:0.5rem">
       <i class="ti ti-history"></i> Historial y descarga PDF
     </button>
+    <button onclick="verPanelSupervision()" style="width:100%;padding:10px;background:none;border:1px solid #93C5FD;border-radius:var(--radio);color:#1D4ED8;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:0.5rem">
+      <i class="ti ti-chart-bar"></i> Panel de supervisión
+    </button>
+    <div id="panel-supervision" style="display:none"></div>
 
     ${estado.mostrarAlertaPendientes ? `
     <div style="margin-top:1rem;background:#FEF2F2;border:1.5px solid #FECACA;border-radius:12px;padding:1rem">
@@ -305,7 +309,16 @@ function renderManipuladores() {
       <div style="flex:1">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#92400E;margin-bottom:4px">Fecha del registro</div>
         <input type="date" id="fecha-manip" value="${fechaHoy()}" max="${fechaHoy()}"
+          onchange="toggleMotivoRetroactivo('motivo-manip', this.value)"
           style="border:1.5px solid #F59E0B;border-radius:6px;padding:6px 10px;font-size:14px;font-weight:600;color:#92400E;background:white;width:100%">
+        <div id="motivo-manip" style="display:none;margin-top:8px">
+          <div style="background:#FEE2E2;border:1.5px solid #FCA5A5;border-radius:8px;padding:10px;margin-top:4px">
+            <div style="font-size:11px;font-weight:700;color:#991B1B;margin-bottom:6px">⚠️ REGISTRO RETROACTIVO — Motivo obligatorio</div>
+            <div style="font-size:11px;color:#B91C1C;margin-bottom:8px">Este registro quedará marcado como retroactivo con fecha y hora real de llenado visible para supervisión.</div>
+            <textarea id="motivo-manip-texto" rows="2" placeholder="Escribe el motivo por el que no se llenó en el momento correspondiente..."
+              style="width:100%;border:1.5px solid #FCA5A5;border-radius:6px;padding:8px;font-size:13px;resize:vertical;font-family:inherit"></textarea>
+          </div>
+        </div>
       </div>
       <div style="font-size:11px;color:#B45309;text-align:right;max-width:120px;line-height:1.3">Cambia si estás llenando un día anterior</div>
     </div>
@@ -339,7 +352,16 @@ function renderTemperatura() {
       <div style="flex:1">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#92400E;margin-bottom:4px">Fecha del registro</div>
         <input type="date" id="fecha-temp" value="${fechaHoy()}" max="${fechaHoy()}"
+          onchange="toggleMotivoRetroactivo('motivo-temp', this.value)"
           style="border:1.5px solid #F59E0B;border-radius:6px;padding:6px 10px;font-size:14px;font-weight:600;color:#92400E;background:white;width:100%">
+        <div id="motivo-temp" style="display:none;margin-top:8px">
+          <div style="background:#FEE2E2;border:1.5px solid #FCA5A5;border-radius:8px;padding:10px;margin-top:4px">
+            <div style="font-size:11px;font-weight:700;color:#991B1B;margin-bottom:6px">⚠️ REGISTRO RETROACTIVO — Motivo obligatorio</div>
+            <div style="font-size:11px;color:#B91C1C;margin-bottom:8px">Este registro quedará marcado como retroactivo con fecha y hora real de llenado visible para supervisión.</div>
+            <textarea id="motivo-temp-texto" rows="2" placeholder="Escribe el motivo por el que no se llenó en el momento correspondiente..."
+              style="width:100%;border:1.5px solid #FCA5A5;border-radius:6px;padding:8px;font-size:13px;resize:vertical;font-family:inherit"></textarea>
+          </div>
+        </div>
       </div>
       <div style="font-size:11px;color:#B45309;text-align:right;max-width:120px;line-height:1.3">Cambia si estás llenando un día anterior</div>
     </div>
@@ -373,7 +395,16 @@ function renderSuperficies() {
       <div style="flex:1">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#92400E;margin-bottom:4px">Fecha del registro</div>
         <input type="date" id="fecha-sup" value="${fechaHoy()}" max="${fechaHoy()}"
+          onchange="toggleMotivoRetroactivo('motivo-sup', this.value)"
           style="border:1.5px solid #F59E0B;border-radius:6px;padding:6px 10px;font-size:14px;font-weight:600;color:#92400E;background:white;width:100%">
+        <div id="motivo-sup" style="display:none;margin-top:8px">
+          <div style="background:#FEE2E2;border:1.5px solid #FCA5A5;border-radius:8px;padding:10px;margin-top:4px">
+            <div style="font-size:11px;font-weight:700;color:#991B1B;margin-bottom:6px">⚠️ REGISTRO RETROACTIVO — Motivo obligatorio</div>
+            <div style="font-size:11px;color:#B91C1C;margin-bottom:8px">Este registro quedará marcado como retroactivo con fecha y hora real de llenado visible para supervisión.</div>
+            <textarea id="motivo-sup-texto" rows="2" placeholder="Escribe el motivo por el que no se llenó en el momento correspondiente..."
+              style="width:100%;border:1.5px solid #FCA5A5;border-radius:6px;padding:8px;font-size:13px;resize:vertical;font-family:inherit"></textarea>
+          </div>
+        </div>
       </div>
       <div style="font-size:11px;color:#B45309;text-align:right;max-width:120px;line-height:1.3">Cambia si estás llenando un día anterior</div>
     </div>
@@ -412,7 +443,16 @@ function renderRecepcion() {
       <div style="flex:1">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#92400E;margin-bottom:4px">Fecha del registro</div>
         <input type="date" id="fecha-rec" value="${fechaHoy()}" max="${fechaHoy()}"
+          onchange="toggleMotivoRetroactivo('motivo-rec', this.value)"
           style="border:1.5px solid #F59E0B;border-radius:6px;padding:6px 10px;font-size:14px;font-weight:600;color:#92400E;background:white;width:100%">
+        <div id="motivo-rec" style="display:none;margin-top:8px">
+          <div style="background:#FEE2E2;border:1.5px solid #FCA5A5;border-radius:8px;padding:10px;margin-top:4px">
+            <div style="font-size:11px;font-weight:700;color:#991B1B;margin-bottom:6px">⚠️ REGISTRO RETROACTIVO — Motivo obligatorio</div>
+            <div style="font-size:11px;color:#B91C1C;margin-bottom:8px">Este registro quedará marcado como retroactivo con fecha y hora real de llenado visible para supervisión.</div>
+            <textarea id="motivo-rec-texto" rows="2" placeholder="Escribe el motivo por el que no se llenó en el momento correspondiente..."
+              style="width:100%;border:1.5px solid #FCA5A5;border-radius:6px;padding:8px;font-size:13px;resize:vertical;font-family:inherit"></textarea>
+          </div>
+        </div>
       </div>
       <div style="font-size:11px;color:#B45309;text-align:right;max-width:120px;line-height:1.3">Cambia si estás llenando un día anterior</div>
     </div>
@@ -645,7 +685,7 @@ window.guardarManip = async () => {
   const btn = document.getElementById('btn-guardar-manip')
   if (btn) { btn.classList.add('guardando'); btn.innerHTML = '<i class="ti ti-loader"></i> Guardando...'; btn.disabled = true }
   try {
-    await guardarManipuladores({ turno: estado.turno, responsable: estado.responsable, items, fecha: document.getElementById('fecha-manip')?.value || null })
+    await guardarManipuladores({ turno: estado.turno, responsable: estado.responsable, items, fecha: document.getElementById('fecha-manip')?.value || null, motivoRetroactivo: document.getElementById('motivo-manip-texto')?.value || null })
     mostrarToast(`Registro guardado — ${horaActual()}`)
     setTimeout(async () => { await window.volverInicio() }, 1500)
   } catch(e) { mostrarToast('Error al guardar. Verifica la conexión.', 'error') }
@@ -662,7 +702,7 @@ window.guardarTemp = async () => {
     return { equipo: eq.equipo, rango_min: eq.min === -99 ? null : eq.min, rango_max: eq.max === 999 ? null : eq.max, temperatura: isNaN(v) ? null : v, resultado, accion_correctiva: corr || null }
   })
   try {
-    await guardarTemperaturas({ turno: estado.turno, responsable: estado.responsable, items, fecha: document.getElementById('fecha-temp')?.value || null })
+    await guardarTemperaturas({ turno: estado.turno, responsable: estado.responsable, items, fecha: document.getElementById('fecha-temp')?.value || null, motivoRetroactivo: document.getElementById('motivo-temp-texto')?.value || null })
     mostrarToast(`Registro guardado — ${horaActual()}`)
     setTimeout(async () => { await window.volverInicio() }, 1500)
   } catch(e) { mostrarToast('Error al guardar. Verifica la conexión.', 'error') }
@@ -677,7 +717,7 @@ window.guardarSup = async () => {
     items.push({ item: card.dataset.item, seccion: card.dataset.seccion, resultado: resultado || 'NA', accion_correctiva: card.querySelector('.correctiva textarea')?.value || null })
   })
   try {
-    await guardarSuperficies({ turno: estado.turno, responsable: estado.responsable, items, fecha: document.getElementById('fecha-sup')?.value || null })
+    await guardarSuperficies({ turno: estado.turno, responsable: estado.responsable, items, fecha: document.getElementById('fecha-sup')?.value || null, motivoRetroactivo: document.getElementById('motivo-sup-texto')?.value || null })
     mostrarToast(`Registro guardado — ${horaActual()}`)
     setTimeout(async () => { await window.volverInicio() }, 1500)
   } catch(e) { mostrarToast('Error al guardar. Verifica la conexión.', 'error') }
@@ -696,7 +736,7 @@ window.guardarRec = async () => {
   })
   if (productos.length === 0) { mostrarToast('Ingresa al menos un producto con fecha de vencimiento', 'error'); return }
   try {
-    await guardarRecepcion({ responsable, proveedor: document.getElementById('rec-proveedor')?.value, nFactura: document.getElementById('rec-factura')?.value, patenteCamion: document.getElementById('rec-patente')?.value, higieneCamion: document.getElementById('rec-higiene')?.value, productos, fecha: document.getElementById('fecha-rec')?.value || null })
+    await guardarRecepcion({ responsable, proveedor: document.getElementById('rec-proveedor')?.value, nFactura: document.getElementById('rec-factura')?.value, patenteCamion: document.getElementById('rec-patente')?.value, higieneCamion: document.getElementById('rec-higiene')?.value, productos, fecha: document.getElementById('fecha-rec')?.value || null, motivoRetroactivo: document.getElementById('motivo-rec-texto')?.value || null })
     mostrarToast(`Recepción guardada — ${horaActual()}`)
   } catch(e) { mostrarToast('Error al guardar. Verifica la conexión.', 'error') }
 }
@@ -747,6 +787,225 @@ async function cargarHistorial() {
   }
 }
 
+// ─────────────────────────────────────────────
+// MOTIVO RETROACTIVO: mostrar/ocultar según fecha
+// ─────────────────────────────────────────────
+window.toggleMotivoRetroactivo = (divId, fechaVal) => {
+  const hoy = new Date().toISOString().split('T')[0]
+  const div = document.getElementById(divId)
+  if (div) div.style.display = fechaVal && fechaVal !== hoy ? 'block' : 'none'
+}
+
+// ─────────────────────────────────────────────
+// VALIDAR MOTIVO OBLIGATORIO ANTES DE GUARDAR
+// ─────────────────────────────────────────────
+function validarMotivo(fechaId, motivoId) {
+  const fecha = document.getElementById(fechaId)?.value
+  const hoy = new Date().toISOString().split('T')[0]
+  if (fecha && fecha !== hoy) {
+    const motivo = document.getElementById(motivoId)?.value?.trim()
+    if (!motivo) {
+      alert('⚠️ El motivo del registro retroactivo es obligatorio.\nPor favor explica por qué no se llenó en el momento correspondiente.')
+      document.getElementById(motivoId)?.focus()
+      return false
+    }
+  }
+  return true
+}
+
+// ─────────────────────────────────────────────
+// ALERTAS DE RECORDATORIO (notificaciones del navegador)
+// ─────────────────────────────────────────────
+const ALERTAS_CONFIG = [
+  { hh: 9,  mm: 30, bloque: 'Día',   mensaje: '⏰ Recuerda llenar los formularios del turno Día (cierra a las 12:59)' },
+  { hh: 12, mm: 59, mensaje: '🔔 Ventana del turno Día cerrando. ¿Ya llenaste los formularios?' },
+  { hh: 16, mm: 59, mensaje: '🔔 Ventana del turno Tarde cerrando. ¿Ya llenaste los formularios?' },
+]
+
+let alertasActivas = []
+
+function programarAlertas() {
+  alertasActivas.forEach(t => clearTimeout(t))
+  alertasActivas = []
+
+  if (!('Notification' in window)) return
+
+  if (Notification.permission === 'default') {
+    Notification.requestPermission()
+    return
+  }
+  if (Notification.permission !== 'granted') return
+
+  const ahora = new Date()
+  ALERTAS_CONFIG.forEach(cfg => {
+    const objetivo = new Date(ahora)
+    objetivo.setHours(cfg.hh, cfg.mm, 0, 0)
+    const diff = objetivo - ahora
+    if (diff > 0) {
+      const t = setTimeout(() => {
+        new Notification('TurnoDoc BPM', {
+          body: cfg.mensaje,
+          icon: '/favicon.ico',
+          tag: `alerta-${cfg.hh}-${cfg.mm}`,
+          requireInteraction: true,
+        })
+      }, diff)
+      alertasActivas.push(t)
+    }
+  })
+}
+
+// ─────────────────────────────────────────────
+// ENVÍO DE CORREO DE ESCALAMIENTO (vía Resend)
+// El correo se envía cuando cierra una ventana sin registro
+// ─────────────────────────────────────────────
+const CORREO_SUPERVISOR = 'alcidesnin@gmail.com'
+const RESEND_API_KEY = '' // Se configura con variable de entorno o aquí directamente
+
+async function enviarCorreoEscalamiento(bloque, fecha) {
+  if (!RESEND_API_KEY) {
+    console.warn('RESEND_API_KEY no configurada, correo no enviado')
+    return
+  }
+  try {
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: 'TurnoDoc BPM <alertas@turnodoc.cl>',
+        to: [CORREO_SUPERVISOR],
+        subject: `⚠️ TurnoDoc: Formularios sin completar — Turno ${bloque} del ${fecha}`,
+        html: `
+          <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+            <div style="background:#DC2626;color:white;padding:20px;border-radius:8px 8px 0 0">
+              <h2 style="margin:0">⚠️ Alerta TurnoDoc BPM</h2>
+              <p style="margin:4px 0 0">EDS Copec 40533 — Ovalle</p>
+            </div>
+            <div style="border:1px solid #FCA5A5;border-top:none;padding:20px;border-radius:0 0 8px 8px">
+              <p><strong>La ventana del turno ${bloque} cerró sin registros completos.</strong></p>
+              <ul>
+                <li>Fecha: <strong>${fecha}</strong></li>
+                <li>Turno: <strong>${bloque}</strong></li>
+                <li>Hora de alerta: <strong>${new Date().toLocaleTimeString('es-CL')}</strong></li>
+              </ul>
+              <p>Los formularios de Manipuladores, Temperatura y/o Superficies no fueron completados durante la ventana correspondiente.</p>
+              <p style="color:#6B7280;font-size:12px">Este correo fue enviado automáticamente por TurnoDoc BPM.</p>
+            </div>
+          </div>
+        `
+      })
+    })
+    console.log(`Correo de escalamiento enviado para turno ${bloque}`)
+  } catch(e) {
+    console.error('Error enviando correo:', e)
+  }
+}
+
+// Verificar al cerrar ventanas si hay registros pendientes
+async function verificarCierreVentana(bloque, fecha) {
+  try {
+    const { getEstadoDia } = await import('./db.js')
+    const estado = await getEstadoDia(fecha)
+    const tipos = ['manipuladores', 'temperatura', 'superficies']
+    const faltantes = tipos.filter(t => !estado[t] || estado[t].length === 0)
+    if (faltantes.length > 0) {
+      await enviarCorreoEscalamiento(bloque, fecha)
+    }
+  } catch(e) {
+    console.error('Error verificando cierre de ventana:', e)
+  }
+}
+
+// Programar verificaciones de cierre de ventana
+function programarVerificacionesCierre() {
+  const hoy = new Date().toISOString().split('T')[0]
+  const cierres = [
+    { hh: 13, mm: 0,  bloque: 'Día' },
+    { hh: 17, mm: 0,  bloque: 'Tarde' },
+    { hh: 21, mm: 5,  bloque: 'Noche' },
+  ]
+
+  const ahora = new Date()
+  cierres.forEach(cfg => {
+    const objetivo = new Date(ahora)
+    objetivo.setHours(cfg.hh, cfg.mm, 0, 0)
+    const diff = objetivo - ahora
+    if (diff > 0) {
+      setTimeout(() => verificarCierreVentana(cfg.bloque, hoy), diff)
+    }
+  })
+}
+
+// ─────────────────────────────────────────────
+// PANEL DE SUPERVISIÓN
+// ─────────────────────────────────────────────
+window.verPanelSupervision = async () => {
+  const panel = document.getElementById('panel-supervision')
+  if (panel) {
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none'
+    if (panel.style.display === 'block') await renderPanelSupervision()
+    return
+  }
+}
+
+async function renderPanelSupervision() {
+  const panel = document.getElementById('panel-supervision')
+  if (!panel) return
+  panel.innerHTML = '<div style="text-align:center;padding:20px;color:#6B7280">Cargando...</div>'
+
+  try {
+    const dias = await getPanelSupervision(7)
+    const TIPOS_LABEL = { manipuladores: 'Manip.', temperatura: 'Temp.', superficies: 'Superf.' }
+
+    panel.innerHTML = `
+      <div style="background:white;border:1px solid #E2E8F0;border-radius:12px;padding:16px;margin-top:12px">
+        <div style="font-weight:700;font-size:14px;margin-bottom:12px;display:flex;align-items:center;gap:8px">
+          <i class="ti ti-chart-bar" style="color:var(--azul)"></i>
+          Panel de supervisión — Últimos 7 días
+          <button onclick="document.getElementById('panel-supervision').style.display='none'"
+            style="margin-left:auto;background:none;border:none;cursor:pointer;color:#9CA3AF;font-size:18px">✕</button>
+        </div>
+        ${dias.map(d => {
+          const fecha = new Date(d.fecha + 'T12:00:00')
+          const nombreDia = fecha.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
+          const tiposRegistrados = new Set(d.registros.map(r => r.tipo))
+          const TIPOS = ['manipuladores', 'temperatura', 'superficies']
+
+          return `
+          <div style="border:1px solid ${d.completo ? (d.tieneRetroactivos ? '#FCD34D' : '#86EFAC') : '#FCA5A5'};border-radius:8px;padding:10px 14px;margin-bottom:8px;background:${d.completo ? (d.tieneRetroactivos ? '#FFFBEB' : '#F0FDF4') : '#FEF2F2'}">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="font-weight:700;font-size:13px;text-transform:capitalize">${nombreDia}</span>
+              <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:${d.completo ? (d.tieneRetroactivos ? '#FEF3C7' : '#DCFCE7') : '#FEE2E2'};color:${d.completo ? (d.tieneRetroactivos ? '#92400E' : '#166534') : '#991B1B'}">
+                ${d.completo ? (d.tieneRetroactivos ? '⚠️ Completo (retroactivo)' : '✓ Completo') : '✗ Incompleto'}
+              </span>
+              ${d.tieneNC ? '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:#FEE2E2;color:#991B1B">NC registrado</span>' : ''}
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              ${TIPOS.map(t => `
+                <span style="font-size:11px;padding:2px 8px;border-radius:6px;background:${tiposRegistrados.has(t) ? '#DBEAFE' : '#F3F4F6'};color:${tiposRegistrados.has(t) ? '#1E40AF' : '#9CA3AF'}">
+                  ${TIPOS_LABEL[t]}
+                </span>
+              `).join('')}
+            </div>
+            ${d.tieneRetroactivos ? `
+              <div style="margin-top:8px;font-size:11px;color:#92400E;background:#FEF3C7;border-radius:6px;padding:6px 10px">
+                ${d.registros.filter(r => r.retroactivo).map(r => `
+                  <div>📋 ${TIPOS_LABEL[r.tipo] || r.tipo}: llenado el ${new Date(r.created_at).toLocaleString('es-CL')} — "${r.motivo_retroactivo || 'sin motivo'}"</div>
+                `).join('')}
+              </div>
+            ` : ''}
+          </div>`
+        }).join('')}
+      </div>
+    `
+  } catch(e) {
+    panel.innerHTML = '<div style="color:#DC2626;padding:12px">Error al cargar el panel</div>'
+  }
+}
+
 async function init() {
   renderApp()
   try {
@@ -765,10 +1024,9 @@ async function init() {
   }
   estado.estadoDia = await cargarEstadoDia()
 
-  // Cargar días pendientes de los últimos 30 días
+  // Días pendientes
   try {
     const pendientes = await getDiasPendientes(30)
-    // Excluir hoy (ya se muestra en el estado del día)
     const hoyStr = fechaHoy()
     estado.diasPendientes = pendientes.filter(p => p.fecha !== hoyStr)
     estado.mostrarAlertaPendientes = estado.diasPendientes.length > 0
@@ -778,6 +1036,10 @@ async function init() {
   }
 
   renderApp()
+
+  // Programar alertas de recordatorio y verificaciones de cierre
+  programarAlertas()
+  programarVerificacionesCierre()
 }
 
 init()
