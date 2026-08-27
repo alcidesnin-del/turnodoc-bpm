@@ -372,6 +372,18 @@ export async function generarPDFPeriodo(fechaDesde, fechaHasta, registros, supab
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(AZUL)
     doc.text(fechaLegible(fecha), M + 3, y + 7)
+
+    // Indicador de completitud del día
+    const TIPOS_OBLIGATORIOS = ['manipuladores', 'temperatura', 'superficies']
+    const tiposDelDia = new Set(regsDelDia.map(r => r.tipo))
+    const completo = TIPOS_OBLIGATORIOS.every(t => tiposDelDia.has(t))
+    const tieneRetro = regsDelDia.some(r => r.retroactivo)
+    const estadoLabel = completo ? (tieneRetro ? '⚠ Retroactivo' : '✓ Completo') : '✗ Incompleto'
+    const estadoColor = completo ? (tieneRetro ? '#D97706' : VERDE) : ROJO
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(estadoColor)
+    doc.text(estadoLabel, W - M - 3, y + 7, { align: 'right' })
     doc.setTextColor(NEGRO)
     y += 13
 
@@ -395,6 +407,19 @@ export async function generarPDFPeriodo(fechaDesde, fechaHasta, registros, supab
         continue
       }
 
+      // Responsable y hora del primer registro del turno
+      const primerReg = regsTurno[0]
+      const horaReal = primerReg.created_at
+        ? new Date(primerReg.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+        : '—'
+      const esRetro = regsTurno.some(r => r.retroactivo)
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(8)
+      doc.setTextColor(NEGRO)
+      doc.text(`${primerReg.responsable || '—'} · ${horaReal}${esRetro ? ' ⚠ Retroactivo' : ''}`, M + 22, y)
+      y += 4
+
       const tipos = regsTurno.map(r => {
         const tieneNC = r.tiene_nc
         const label = { manipuladores: 'Manip.', temperatura: 'Temp.', superficies: 'Superf.', recepcion: 'Recep.' }[r.tipo]
@@ -403,6 +428,7 @@ export async function generarPDFPeriodo(fechaDesde, fechaHasta, registros, supab
 
       let xPos = M + 22
       tipos.forEach(t => {
+        doc.setFontSize(9)
         doc.setTextColor(t.tieneNC ? ROJO : VERDE)
         doc.text(`${t.tieneNC ? '✗' : '✓'} ${t.label}`, xPos, y)
         xPos += 28
