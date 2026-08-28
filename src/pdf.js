@@ -366,6 +366,8 @@ export async function generarPDFPeriodo(fechaDesde, fechaHasta, registros, supab
     }
     primeraPagina = false
 
+    const regsDelDia = porFecha[fecha]
+
     doc.setFillColor('#EBF2FB')
     doc.rect(M, y, W - M * 2, 10, 'F')
     doc.setFontSize(11)
@@ -387,7 +389,6 @@ export async function generarPDFPeriodo(fechaDesde, fechaHasta, registros, supab
     doc.setTextColor(NEGRO)
     y += 13
 
-    const regsDelDia = porFecha[fecha]
     const TURNOS = ['Mañana', 'Tarde', 'Noche']
 
     for (const turno of TURNOS) {
