@@ -421,9 +421,12 @@ export async function generarPDFPeriodo(fechaDesde, fechaHasta, registros, supab
       doc.text(`${primerReg.responsable || '—'} · ${horaReal}${esRetro ? ' ⚠ Retroactivo' : ''}`, M + 22, y)
       y += 4
 
-      const tipos = regsTurno.map(r => {
-        const tieneNC = r.tiene_nc
-        const label = { manipuladores: 'Manip.', temperatura: 'Temp.', superficies: 'Superf.', recepcion: 'Recep.' }[r.tipo]
+      // Agrupar por tipo (sin duplicar si se llenó más de una vez)
+      const tiposUnicos = [...new Set(regsTurno.map(r => r.tipo))]
+      const tipos = tiposUnicos.map(tipo => {
+        const regsDelTipo = regsTurno.filter(r => r.tipo === tipo)
+        const tieneNC = regsDelTipo.some(r => r.tiene_nc)
+        const label = { manipuladores: 'Manip.', temperatura: 'Temp.', superficies: 'Superf.', recepcion: 'Recep.' }[tipo]
         return { label, tieneNC }
       })
 
