@@ -309,7 +309,7 @@ function renderManipuladores() {
       <div style="flex:1">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#92400E;margin-bottom:4px">Fecha del registro</div>
         <input type="date" id="fecha-manip" value="${fechaHoy()}" max="${fechaHoy()}"
-          onchange="toggleMotivoRetroactivo('motivo-manip', this.value)"
+          oninput="toggleMotivoRetroactivo('motivo-manip', this.value)"
           style="border:1.5px solid #F59E0B;border-radius:6px;padding:6px 10px;font-size:14px;font-weight:600;color:#92400E;background:white;width:100%">
         <div id="motivo-manip" style="display:none;margin-top:8px">
           <div style="background:#FEE2E2;border:1.5px solid #FCA5A5;border-radius:8px;padding:10px;margin-top:4px">
@@ -352,7 +352,7 @@ function renderTemperatura() {
       <div style="flex:1">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#92400E;margin-bottom:4px">Fecha del registro</div>
         <input type="date" id="fecha-temp" value="${fechaHoy()}" max="${fechaHoy()}"
-          onchange="toggleMotivoRetroactivo('motivo-temp', this.value)"
+          oninput="toggleMotivoRetroactivo('motivo-temp', this.value)"
           style="border:1.5px solid #F59E0B;border-radius:6px;padding:6px 10px;font-size:14px;font-weight:600;color:#92400E;background:white;width:100%">
         <div id="motivo-temp" style="display:none;margin-top:8px">
           <div style="background:#FEE2E2;border:1.5px solid #FCA5A5;border-radius:8px;padding:10px;margin-top:4px">
@@ -395,7 +395,7 @@ function renderSuperficies() {
       <div style="flex:1">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#92400E;margin-bottom:4px">Fecha del registro</div>
         <input type="date" id="fecha-sup" value="${fechaHoy()}" max="${fechaHoy()}"
-          onchange="toggleMotivoRetroactivo('motivo-sup', this.value)"
+          oninput="toggleMotivoRetroactivo('motivo-sup', this.value)"
           style="border:1.5px solid #F59E0B;border-radius:6px;padding:6px 10px;font-size:14px;font-weight:600;color:#92400E;background:white;width:100%">
         <div id="motivo-sup" style="display:none;margin-top:8px">
           <div style="background:#FEE2E2;border:1.5px solid #FCA5A5;border-radius:8px;padding:10px;margin-top:4px">
@@ -443,7 +443,7 @@ function renderRecepcion() {
       <div style="flex:1">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#92400E;margin-bottom:4px">Fecha del registro</div>
         <input type="date" id="fecha-rec" value="${fechaHoy()}" max="${fechaHoy()}"
-          onchange="toggleMotivoRetroactivo('motivo-rec', this.value)"
+          oninput="toggleMotivoRetroactivo('motivo-rec', this.value)"
           style="border:1.5px solid #F59E0B;border-radius:6px;padding:6px 10px;font-size:14px;font-weight:600;color:#92400E;background:white;width:100%">
         <div id="motivo-rec" style="display:none;margin-top:8px">
           <div style="background:#FEE2E2;border:1.5px solid #FCA5A5;border-radius:8px;padding:10px;margin-top:4px">
@@ -556,7 +556,20 @@ window.setResponsable = (v) => { estado.responsable = v }
 
 window.volverInicio = async () => {
   estado.vistaInicio = true; estado.vistaHistorial = false; renderApp()
-  estado.estadoDia = await cargarEstadoDia(); renderApp()
+  estado.estadoDia = await cargarEstadoDia()
+
+  // Refrescar también los días pendientes, para que un día recién llenado
+  // desaparezca de la lista de inmediato (evita reintentos duplicados)
+  try {
+    const pendientes = await getDiasPendientes(30)
+    const hoyStr = fechaHoy()
+    estado.diasPendientes = pendientes.filter(p => p.fecha !== hoyStr)
+    estado.mostrarAlertaPendientes = estado.diasPendientes.length > 0
+  } catch(e) {
+    // si falla, se deja la lista anterior tal como estaba
+  }
+
+  renderApp()
 }
 
 window.irAFechaPendiente = (fecha) => {
@@ -676,6 +689,7 @@ window.agregarProducto = () => {
 
 window.guardarManip = async () => {
   if (!validarManip()) return
+  if (!validarMotivo('fecha-manip', 'motivo-manip-texto')) return
   const items = []
   document.querySelectorAll('#manipuladores-items .card[data-persona]').forEach(card => {
     const activo = card.querySelector('.cn-btn.cumple,.cn-btn.nocumple,.cn-btn.na')
@@ -694,6 +708,7 @@ window.guardarManip = async () => {
 
 window.guardarTemp = async () => {
   if (!validarTemp()) return
+  if (!validarMotivo('fecha-temp', 'motivo-temp-texto')) return
   const items = EQUIPOS_TEMP.map((eq, i) => {
     const input = document.getElementById(`temp-${i}`)
     const v = parseFloat(input?.value)
@@ -710,6 +725,7 @@ window.guardarTemp = async () => {
 
 window.guardarSup = async () => {
   if (!validarSup()) return
+  if (!validarMotivo('fecha-sup', 'motivo-sup-texto')) return
   const items = []
   document.querySelectorAll('#tab-superficies .card[data-item]').forEach(card => {
     const activo = card.querySelector('.cn-btn.cumple,.cn-btn.nocumple,.cn-btn.na')
@@ -724,6 +740,7 @@ window.guardarSup = async () => {
 }
 
 window.guardarRec = async () => {
+  if (!validarMotivo('fecha-rec', 'motivo-rec-texto')) return
   const responsable = document.getElementById('rec-responsable')?.value
   if (!responsable) { mostrarToast('Selecciona el responsable de recepción', 'error'); return }
   const productos = []
@@ -803,9 +820,16 @@ function validarMotivo(fechaId, motivoId) {
   const fecha = document.getElementById(fechaId)?.value
   const hoy = new Date().toISOString().split('T')[0]
   if (fecha && fecha !== hoy) {
+    const divIdMap = { 'motivo-manip-texto': 'motivo-manip', 'motivo-temp-texto': 'motivo-temp', 'motivo-sup-texto': 'motivo-sup', 'motivo-rec-texto': 'motivo-rec' }
+    const div = document.getElementById(divIdMap[motivoId])
+    // Red de seguridad: si el div sigue oculto (el evento no se disparó en el dispositivo), forzarlo visible ahora
+    if (div && div.style.display === 'none') {
+      div.style.display = 'block'
+    }
     const motivo = document.getElementById(motivoId)?.value?.trim()
     if (!motivo) {
-      alert('⚠️ El motivo del registro retroactivo es obligatorio.\nPor favor explica por qué no se llenó en el momento correspondiente.')
+      alert('⚠️ Fecha retroactiva detectada.\n\nDebes escribir el motivo por el que este registro se llena en otra fecha distinta a hoy. El campo ya está visible en el formulario, más arriba.')
+      document.getElementById(motivoId)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       document.getElementById(motivoId)?.focus()
       return false
     }
