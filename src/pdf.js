@@ -311,15 +311,35 @@ export async function generarPDFPeriodo(fechaDesde, fechaHasta, registros, supab
     porFecha[r.fecha].push(r)
   })
 
-  const fechasOrdenadas = Object.keys(porFecha).sort()
-  
-  // Generar PDF por cada día y combinar
-  // Por simplicidad generamos un PDF con todas las fechas
+  // Construir TODOS los días del rango (incluyendo los que no tienen ningún registro)
+  const TIPOS_OBLIGATORIOS = ['manipuladores', 'temperatura', 'superficies']
+  const diasDelRango = []
+  const cursor = new Date(fechaDesde + 'T12:00:00')
+  const fin = new Date(fechaHasta + 'T12:00:00')
+  while (cursor <= fin) {
+    const f = cursor.toISOString().split('T')[0]
+    const regsDelDia = porFecha[f] || []
+    const tiposDelDia = new Set(regsDelDia.map(r => r.tipo))
+    const completo = TIPOS_OBLIGATORIOS.every(t => tiposDelDia.has(t))
+    const tieneRetro = regsDelDia.some(r => r.retroactivo)
+    const tieneNC = regsDelDia.some(r => r.tiene_nc)
+    diasDelRango.push({
+      fecha: f,
+      registros: regsDelDia,
+      completo,
+      tieneRetro,
+      tieneNC,
+      tieneManip: tiposDelDia.has('manipuladores'),
+      tieneTemp: tiposDelDia.has('temperatura'),
+      tieneSuperf: tiposDelDia.has('superficies'),
+      tieneRecep: tiposDelDia.has('recepcion'),
+    })
+    cursor.setDate(cursor.getDate() + 1)
+  }
+
   const doc = new JsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
   const W = doc.internal.pageSize.getWidth()
   const M = 15
-  let y = M
-  let primeraPagina = true
 
   function dibujarHeader() {
     doc.setFillColor(AZUL)
@@ -333,147 +353,170 @@ export async function generarPDFPeriodo(fechaDesde, fechaHasta, registros, supab
     doc.text(`Período: ${fechaCorta(fechaDesde)} al ${fechaCorta(fechaHasta)} · EDS 40533`, M, 14)
     doc.text(`Generado: ${new Date().toLocaleString('es-CL')}`, W - M, 14, { align: 'right' })
     doc.setTextColor(NEGRO)
-    y = 24
   }
 
   dibujarHeader()
+  let y = 24
 
-  // Resumen ejecutivo
-  const totalRegistros = registros.length
-  const conNC = registros.filter(r => r.tiene_nc).length
-  const sinNC = totalRegistros - conNC
+  // ─────────────────────────────────────────────
+  // RESUMEN EJECUTIVO DEL PERÍODO
+  // ─────────────────────────────────────────────
+  const totalDias = diasDelRango.length
+  const diasCompletos = diasDelRango.filter(d => d.completo && !d.tieneRetro).length
+  const diasRetroactivos = diasDelRango.filter(d => d.completo && d.tieneRetro).length
+  const diasIncompletos = diasDelRango.filter(d => !d.completo && d.registros.length > 0).length
+  const diasSinRegistros = diasDelRango.filter(d => d.registros.length === 0).length
+  const diasConNC = diasDelRango.filter(d => d.tieneNC).length
 
   doc.setFillColor(GRIS_CLARO)
-  doc.rect(M, y, W - M * 2, 18, 'F')
+  doc.rect(M, y, W - M * 2, 34, 'F')
   doc.setFontSize(10)
   doc.setFont('helvetica', 'bold')
   doc.setTextColor(NEGRO)
   doc.text('Resumen del período', M + 3, y + 6)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
-  doc.text(`Total de registros: ${totalRegistros}`, M + 3, y + 12)
+  doc.text(`Total de días en el período: ${totalDias}`, M + 3, y + 13)
+
   doc.setTextColor(VERDE)
-  doc.text(`Sin incumplimientos: ${sinNC}`, M + 50, y + 12)
+  doc.text(`Completos: ${diasCompletos}`, M + 3, y + 20)
+  doc.setTextColor('#D97706')
+  doc.text(`Completos con retroactivo: ${diasRetroactivos}`, M + 55, y + 20)
+
   doc.setTextColor(ROJO)
-  doc.text(`Con incumplimientos: ${conNC}`, M + 100, y + 12)
+  doc.text(`Incompletos: ${diasIncompletos}`, M + 3, y + 27)
+  doc.setTextColor(GRIS)
+  doc.text(`Sin registros: ${diasSinRegistros}`, M + 55, y + 27)
+
+  if (diasConNC > 0) {
+    doc.setTextColor(ROJO)
+    doc.text(`Días con incumplimientos (NC): ${diasConNC}`, M + 110, y + 20)
+  }
   doc.setTextColor(NEGRO)
-  y += 22
+  y += 40
 
-  for (const fecha of fechasOrdenadas) {
-    if (!primeraPagina) {
-      doc.addPage()
-      dibujarHeader()
+  // ─────────────────────────────────────────────
+  // TABLA COMPACTA: UNA FILA POR DÍA
+  // ─────────────────────────────────────────────
+  const filas = diasDelRango.map(d => {
+    const fechaFmt = new Date(d.fecha + 'T12:00:00').toLocaleDateString('es-CL', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })
+    let estado = 'Sin registros'
+    if (d.registros.length > 0) {
+      estado = d.completo ? (d.tieneRetro ? 'Retroactivo' : 'Completo') : 'Incompleto'
     }
-    primeraPagina = false
+    return [
+      fechaFmt,
+      d.tieneManip ? 'Si' : '-',
+      d.tieneTemp ? 'Si' : '-',
+      d.tieneSuperf ? 'Si' : '-',
+      d.tieneRecep ? 'Si' : '-',
+      d.tieneNC ? 'Si' : 'No',
+      estado,
+    ]
+  })
 
-    const regsDelDia = porFecha[fecha]
-
-    doc.setFillColor('#EBF2FB')
-    doc.rect(M, y, W - M * 2, 10, 'F')
-    doc.setFontSize(11)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(AZUL)
-    doc.text(fechaLegible(fecha), M + 3, y + 7)
-
-    // Indicador de completitud del día
-    const TIPOS_OBLIGATORIOS = ['manipuladores', 'temperatura', 'superficies']
-    const tiposDelDia = new Set(regsDelDia.map(r => r.tipo))
-    const completo = TIPOS_OBLIGATORIOS.every(t => tiposDelDia.has(t))
-    const tieneRetro = regsDelDia.some(r => r.retroactivo)
-    const estadoLabel = completo ? (tieneRetro ? '⚠ Retroactivo' : '✓ Completo') : '✗ Incompleto'
-    const estadoColor = completo ? (tieneRetro ? '#D97706' : VERDE) : ROJO
-    doc.setFontSize(9)
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(estadoColor)
-    doc.text(estadoLabel, W - M - 3, y + 7, { align: 'right' })
-    doc.setTextColor(NEGRO)
-    y += 13
-
-    const TURNOS = ['Mañana', 'Tarde', 'Noche']
-
-    for (const turno of TURNOS) {
-      const regsTurno = regsDelDia.filter(r => r.turno === turno)
-      doc.setFontSize(9)
-      doc.setFont('helvetica', 'bold')
-      doc.setTextColor(AZUL)
-      doc.text(`Turno ${turno}:`, M, y)
-      doc.setFont('helvetica', 'normal')
-      doc.setTextColor(NEGRO)
-
-      if (regsTurno.length === 0) {
-        doc.setTextColor(ROJO)
-        doc.text('Sin registros', M + 22, y)
-        doc.setTextColor(NEGRO)
-        y += 5
-        continue
-      }
-
-      // Responsable y hora del primer registro del turno
-      const primerReg = regsTurno[0]
-      const horaReal = primerReg.created_at
-        ? new Date(primerReg.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
-        : '—'
-      const esRetro = regsTurno.some(r => r.retroactivo)
-
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(8)
-      doc.setTextColor(NEGRO)
-      doc.text(`${primerReg.responsable || '—'} · ${horaReal}${esRetro ? ' ⚠ Retroactivo' : ''}`, M + 22, y)
-      y += 4
-
-      // Agrupar por tipo (sin duplicar si se llenó más de una vez)
-      const tiposUnicos = [...new Set(regsTurno.map(r => r.tipo))]
-      const tipos = tiposUnicos.map(tipo => {
-        const regsDelTipo = regsTurno.filter(r => r.tipo === tipo)
-        const tieneNC = regsDelTipo.some(r => r.tiene_nc)
-        const label = { manipuladores: 'Manip.', temperatura: 'Temp.', superficies: 'Superf.', recepcion: 'Recep.' }[tipo]
-        return { label, tieneNC }
-      })
-
-      let xPos = M + 22
-      tipos.forEach(t => {
-        doc.setFontSize(9)
-        doc.setTextColor(t.tieneNC ? ROJO : VERDE)
-        doc.text(`${t.tieneNC ? '✗' : '✓'} ${t.label}`, xPos, y)
-        xPos += 28
-      })
-      doc.setTextColor(NEGRO)
-      y += 5
-    }
-
-    // Detalles de NC si los hay
-    const regsConNC = regsDelDia.filter(r => r.tiene_nc && r.detalles)
-    if (regsConNC.length > 0) {
-      y += 2
-      doc.setFontSize(8)
-      doc.setFont('helvetica', 'bold')
-      doc.setTextColor(ROJO)
-      doc.text('Incumplimientos del día:', M, y)
-      doc.setTextColor(NEGRO)
-      y += 4
-
-      regsConNC.forEach(reg => {
-        const tipoLabel = { manipuladores: 'Manipuladores', temperatura: 'Temperatura', superficies: 'Superficies', recepcion: 'Recepción' }[reg.tipo]
-        if (reg.detalles) {
-          const ncs = reg.detalles.filter(d => d.resultado === 'NC' || d.resultado === 'FUERA_RANGO' || d.decision === 'Rechaza')
-          ncs.forEach(nc => {
-            doc.setFont('helvetica', 'normal')
-            doc.setFontSize(8)
-            const texto = `• [${tipoLabel} - ${reg.turno}] ${nc.item || nc.equipo || nc.producto}: ${nc.accion_correctiva || 'Sin acción registrada'}`
-            const lineas = doc.splitTextToSize(texto, W - M * 2 - 5)
-            doc.text(lineas, M + 3, y)
-            y += lineas.length * 4
-          })
+  doc.autoTable({
+    startY: y,
+    head: [['Fecha', 'Manip.', 'Temp.', 'Superf.', 'Recep.', 'NC', 'Estado del día']],
+    body: filas,
+    theme: 'grid',
+    headStyles: { fillColor: AZUL, textColor: '#FFFFFF', fontSize: 8, halign: 'center' },
+    bodyStyles: { fontSize: 8, halign: 'center' },
+    columnStyles: {
+      0: { halign: 'left', cellWidth: 32 },
+      6: { halign: 'left', cellWidth: 32 },
+    },
+    didParseCell: (data) => {
+      if (data.section === 'body') {
+        const texto = String(data.cell.raw)
+        if (data.column.index === 6) {
+          if (texto === 'Completo') data.cell.styles.textColor = VERDE
+          else if (texto === 'Retroactivo') data.cell.styles.textColor = '#D97706'
+          else if (texto === 'Incompleto') data.cell.styles.textColor = ROJO
+          else data.cell.styles.textColor = GRIS
         }
-      })
-    }
+        if (data.column.index === 5 && texto === 'Si') {
+          data.cell.styles.textColor = ROJO
+          data.cell.styles.fontStyle = 'bold'
+        }
+        if ([1, 2, 3, 4].includes(data.column.index)) {
+          data.cell.styles.textColor = texto === 'Si' ? VERDE : GRIS
+        }
+      }
+    },
+    margin: { left: M, right: M },
+    didDrawPage: () => { dibujarHeader() },
+  })
 
-    doc.setDrawColor('#E5E7EB')
-    doc.line(M, y + 2, W - M, y + 2)
+  y = doc.lastAutoTable.finalY + 8
+
+  // ─────────────────────────────────────────────
+  // DETALLE DE INCUMPLIMIENTOS (si los hay)
+  // ─────────────────────────────────────────────
+  const diasConIncumplimientos = diasDelRango.filter(d => d.tieneNC)
+  if (diasConIncumplimientos.length > 0) {
+    if (y > 250) { doc.addPage(); dibujarHeader(); y = 24 }
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(ROJO)
+    doc.text('Detalle de incumplimientos (NC) en el período', M, y)
+    doc.setTextColor(NEGRO)
     y += 6
+
+    diasConIncumplimientos.forEach(d => {
+      if (y > 270) { doc.addPage(); dibujarHeader(); y = 24 }
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(8)
+      doc.text(fechaLegible(d.fecha), M, y)
+      y += 4
+
+      d.registros.filter(r => r.tiene_nc).forEach(reg => {
+        const tipoLabel = { manipuladores: 'Manipuladores', temperatura: 'Temperatura', superficies: 'Superficies', recepcion: 'Recepción' }[reg.tipo]
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(8)
+        doc.setTextColor(ROJO)
+        const texto = `- [${reg.turno}] ${tipoLabel} - incumplimiento registrado`
+        doc.text(texto, M + 3, y)
+        doc.setTextColor(NEGRO)
+        y += 4
+      })
+      y += 2
+    })
   }
 
-  // Pie de página
+  // ─────────────────────────────────────────────
+  // NOTA SOBRE DÍAS RETROACTIVOS (si los hay)
+  // ─────────────────────────────────────────────
+  const diasConRetro = diasDelRango.filter(d => d.tieneRetro)
+  if (diasConRetro.length > 0) {
+    if (y > 250) { doc.addPage(); dibujarHeader(); y = 24 }
+    y += 4
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor('#D97706')
+    doc.text('Registros retroactivos en el período', M, y)
+    doc.setTextColor(NEGRO)
+    y += 6
+
+    diasConRetro.forEach(d => {
+      if (y > 270) { doc.addPage(); dibujarHeader(); y = 24 }
+      const regsRetro = d.registros.filter(r => r.retroactivo)
+      regsRetro.forEach(r => {
+        const tipoLabel = { manipuladores: 'Manipuladores', temperatura: 'Temperatura', superficies: 'Superficies', recepcion: 'Recepción' }[r.tipo]
+        const horaReal = r.created_at ? new Date(r.created_at).toLocaleString('es-CL') : '—'
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(8)
+        const texto = `- ${fechaCorta(d.fecha)} [${r.turno}] ${tipoLabel} - llenado el ${horaReal} - motivo: "${r.motivo_retroactivo || 'sin motivo registrado'}"`
+        const lineas = doc.splitTextToSize(texto, W - M * 2 - 5)
+        doc.text(lineas, M + 3, y)
+        y += lineas.length * 4
+      })
+    })
+  }
+
+  // ─────────────────────────────────────────────
+  // PIE DE PÁGINA
+  // ─────────────────────────────────────────────
   const totalPaginas = doc.internal.getNumberOfPages()
   for (let i = 1; i <= totalPaginas; i++) {
     doc.setPage(i)
@@ -484,6 +527,6 @@ export async function generarPDFPeriodo(fechaDesde, fechaHasta, registros, supab
     doc.text(`Impreso: ${new Date().toLocaleString('es-CL')}`, W - M, 290, { align: 'right' })
   }
 
-  const nombreArchivo = `BPM_${fechaDesde}_al_${fechaHasta}_EDS40533.pdf`
+  const nombreArchivo = `BPM_Resumen_${fechaDesde}_al_${fechaHasta}_EDS40533.pdf`
   doc.save(nombreArchivo)
 }
