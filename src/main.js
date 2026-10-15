@@ -1,4 +1,4 @@
-import { getPersonal, guardarManipuladores, guardarTemperaturas, guardarSuperficies, guardarRecepcion, getHistorial, getRegistrosDia, getRegistrosPeriodo, getDiasPendientes, getEstadoDia, getPanelSupervision, BLOQUES, getBloqueActual, getTurnoActual, normalizarTurno, jornadaActual, fechaLocal, esRetroactivo } from './db.js'
+import { getPersonal, guardarManipuladores, guardarTemperaturas, guardarSuperficies, guardarRecepcion, getHistorial, getRegistrosDia, getRegistrosPeriodo, getDiasPendientes, getEstadoDia, getPanelSupervision, BLOQUES, getBloqueActual, getTurnoActual, normalizarTurno, jornadaActual, fechaLocal, esRetroactivo, FECHA_CORTE_2_TURNOS } from './db.js'
 import { generarPDFDia, generarPDFPeriodo } from './pdf.js'
 
 const estado = {
@@ -860,8 +860,9 @@ async function cargarHistorial() {
           </button>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:4px">
-          ${TURNOS.map(turno => {
-            const regsTurno = regs.filter(r => normalizarTurno(r.turno) === turno)
+          ${(fecha < FECHA_CORTE_2_TURNOS ? ['Mañana', 'Tarde', 'Noche'] : TURNOS).map(turno => {
+            const legado = fecha < FECHA_CORTE_2_TURNOS
+            const regsTurno = regs.filter(r => legado ? r.turno === turno : normalizarTurno(r.turno) === turno)
             if (regsTurno.length === 0) return `<span style="font-size:11px;padding:3px 8px;border-radius:20px;background:var(--gris-2);color:var(--texto-mut)">${turno}: sin registro</span>`
             return regsTurno.map(r => `
               <span style="font-size:11px;padding:3px 8px;border-radius:20px;background:${r.tiene_nc ? 'var(--rojo-claro)' : 'var(--verde-claro)'};color:${r.tiene_nc ? 'var(--rojo)' : 'var(--verde)'}">
