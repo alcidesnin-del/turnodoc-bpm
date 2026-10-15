@@ -8,6 +8,12 @@ const GRIS = '#6B7280'
 const GRIS_CLARO = '#F3F4F6'
 const NEGRO = '#111827'
 
+// Modelo de 2 turnos: los registros antiguos Mañana/Tarde se leen como Día
+function normalizarTurno(t) {
+  if (t === 'Mañana' || t === 'Tarde' || t === 'Día') return 'Día'
+  return t
+}
+
 function fechaLegible(str) {
   if (!str) return '—'
   const d = new Date(str + 'T12:00:00')
@@ -88,7 +94,7 @@ export async function generarPDFDia(fecha, registrosDia, supabase) {
     y += 10
   }
 
-  function metaInfo(turno, responsable, hora) {
+  function metaInfo(turno, responsable) {
     doc.setFillColor(GRIS_CLARO)
     doc.rect(M, y, W - M * 2, 8, 'F')
     doc.setFontSize(9)
@@ -96,7 +102,6 @@ export async function generarPDFDia(fecha, registrosDia, supabase) {
     doc.setTextColor(GRIS)
     doc.text(`Turno: ${turno}`, M + 3, y + 5.5)
     doc.text(`Responsable: ${responsable}`, M + 35, y + 5.5)
-    if (hora) doc.text(`Hora: ${hora}`, W - M - 3, y + 5.5, { align: 'right' })
     doc.setTextColor(NEGRO)
     y += 11
   }
@@ -114,12 +119,12 @@ export async function generarPDFDia(fecha, registrosDia, supabase) {
   doc.setTextColor(NEGRO)
   y += 16
 
-  const TURNOS = ['Mañana', 'Tarde', 'Noche']
+  const TURNOS = ['Día', 'Noche']
   const TIPOS = ['manipuladores', 'temperatura', 'superficies', 'recepcion']
   const TIPO_LABELS = { manipuladores: 'Higiene de Manipuladores', temperatura: 'Control de Temperatura', superficies: 'Higiene de Superficies y Químicos', recepcion: 'Recepción de Materias Primas' }
 
   for (const turno of TURNOS) {
-    const registrosTurno = registrosDia.filter(r => r.turno === turno)
+    const registrosTurno = registrosDia.filter(r => normalizarTurno(r.turno) === turno)
     if (registrosTurno.length === 0) {
       nuevaPaginaSiNecesario(20)
       doc.setFontSize(10)
@@ -144,10 +149,8 @@ export async function generarPDFDia(fecha, registrosDia, supabase) {
     y += 6
 
     for (const reg of registrosTurno) {
-      const hora = reg.created_at ? new Date(reg.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : null
-
       seccionTitulo(TIPO_LABELS[reg.tipo] || reg.tipo)
-      metaInfo(turno, reg.responsable, hora)
+      metaInfo(turno, reg.responsable)
 
       if (reg.tipo === 'manipuladores' && reg.detalles) {
         const personas = [...new Set(reg.detalles.map(d => d.persona))]
@@ -475,7 +478,7 @@ export async function generarPDFPeriodo(fechaDesde, fechaHasta, registros, supab
         doc.setFont('helvetica', 'normal')
         doc.setFontSize(8)
         doc.setTextColor(ROJO)
-        const texto = `- [${reg.turno}] ${tipoLabel} - incumplimiento registrado`
+        const texto = `- [${normalizarTurno(reg.turno)}] ${tipoLabel} - incumplimiento registrado`
         doc.text(texto, M + 3, y)
         doc.setTextColor(NEGRO)
         y += 4
@@ -506,7 +509,7 @@ export async function generarPDFPeriodo(fechaDesde, fechaHasta, registros, supab
         const horaReal = r.created_at ? new Date(r.created_at).toLocaleString('es-CL') : '—'
         doc.setFont('helvetica', 'normal')
         doc.setFontSize(8)
-        const texto = `- ${fechaCorta(d.fecha)} [${r.turno}] ${tipoLabel} - llenado el ${horaReal} - motivo: "${r.motivo_retroactivo || 'sin motivo registrado'}"`
+        const texto = `- ${fechaCorta(d.fecha)} [${normalizarTurno(r.turno)}] ${tipoLabel} - llenado el ${horaReal} - motivo: "${r.motivo_retroactivo || 'sin motivo registrado'}"`
         const lineas = doc.splitTextToSize(texto, W - M * 2 - 5)
         doc.text(lineas, M + 3, y)
         y += lineas.length * 4
