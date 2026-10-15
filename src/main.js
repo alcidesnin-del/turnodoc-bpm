@@ -1,8 +1,9 @@
-import { getPersonal, guardarManipuladores, guardarTemperaturas, guardarSuperficies, guardarRecepcion, getHistorial, getRegistrosDia, getRegistrosPeriodo, getDiasPendientes, getEstadoDia, getPanelSupervision, BLOQUES, getBloqueActual, esRetroactivo } from './db.js'
+import { getPersonal, guardarManipuladores, guardarTemperaturas, guardarSuperficies, guardarRecepcion, getHistorial, getRegistrosDia, getRegistrosPeriodo, getDiasPendientes, getEstadoDia, getPanelSupervision, BLOQUES, getBloqueActual, getTurnoActual, normalizarTurno, jornadaActual, fechaLocal, esRetroactivo } from './db.js'
 import { generarPDFDia, generarPDFPeriodo } from './pdf.js'
 
 const estado = {
-  turno: 'Mañana',
+  turno: getTurnoActual(),
+  retroGuiado: null,
   responsable: '',
   tabActiva: 'manipuladores',
   vistaHistorial: false,
@@ -52,7 +53,7 @@ const EQUIPOS_TEMP = [
   { equipo: 'Salsa de ajo en salsera', min: 0, max: 5, correctiva: 'Reemplazar producto, mantener cadena de frío' },
 ]
 
-const TURNOS = ['Mañana', 'Tarde', 'Noche']
+const TURNOS = ['Día', 'Noche']
 const TIPOS_BPM = ['manipuladores', 'temperatura', 'superficies']
 
 function hoy() {
@@ -62,12 +63,14 @@ function hoy() {
   return `${dias[d.getDay()]}, ${d.getDate()} de ${meses[d.getMonth()]} ${d.getFullYear()}`
 }
 
+// Fecha de la jornada vigente (entre 00:00 y 08:59 sigue siendo la del día anterior)
 function fechaHoy() {
-  return new Date().toISOString().split('T')[0]
+  return jornadaActual()
 }
 
-function horaActual() {
-  return new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+function fechaCortaLeg(str) {
+  const d = new Date(str + 'T12:00:00')
+  return d.toLocaleDateString('es-CL', { day: 'numeric', month: 'long' })
 }
 
 function fechaLegible(str) {
@@ -105,16 +108,21 @@ async function cargarEstadoDia() {
     TURNOS.forEach(turno => {
       estado_dia[turno] = {}
       TIPOS_BPM.forEach(tipo => {
-        estado_dia[turno][tipo] = registrosHoy.some(r => r.turno === turno && r.tipo === tipo)
+        estado_dia[turno][tipo] = registrosHoy.some(r => normalizarTurno(r.turno) === turno && r.tipo === tipo)
       })
     })
     return estado_dia
   } catch(e) { return null }
 }
 
+// Turnos que ya comenzaron en la jornada vigente (la Noche recién comienza a las 21:01)
+function turnosIniciados() {
+  return getTurnoActual() === 'Noche' ? ['Día', 'Noche'] : ['Día']
+}
+
 function todoCompleto(estadoDia) {
   if (!estadoDia) return false
-  return TURNOS.every(t => TIPOS_BPM.every(tp => estadoDia[t][tp]))
+  return turnosIniciados().every(t => TIPOS_BPM.every(tp => estadoDia[t][tp]))
 }
 
 function pendientesTurno(estadoDia, turno) {
@@ -124,8 +132,7 @@ function pendientesTurno(estadoDia, turno) {
 
 function renderInicio(estadoDia) {
   const completo = todoCompleto(estadoDia)
-  const h = new Date().getHours()
-  const turnoActual = h >= 6 && h < 14 ? 'Mañana' : h >= 14 && h < 22 ? 'Tarde' : 'Noche'
+  const turnoActual = getTurnoActual()
 
   return `
   <div style="padding:1rem">
@@ -151,6 +158,15 @@ function renderInicio(estadoDia) {
     ${TURNOS.map(turno => {
       const pendientes = pendientesTurno(estadoDia, turno)
       const esTurnoActual = turno === turnoActual
+      if (!turnosIniciados().includes(turno)) {
+        return `
+      <div style="background:var(--gris-0);border:1px dashed var(--gris-borde);border-radius:12px;padding:1rem;margin-bottom:0.75rem;opacity:0.75">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="font-size:14px;font-weight:600;color:var(--texto-sec)">Turno ${turno}</div>
+          <span style="margin-left:auto;font-size:11px;background:var(--gris-2);color:var(--texto-mut);padding:2px 8px;border-radius:20px;font-weight:500">Comienza a las 21:01</span>
+        </div>
+      </div>`
+      }
       return `
       <div style="background:var(--gris-0);border:1px solid ${esTurnoActual ? 'var(--azul-borde)' : 'var(--gris-borde)'};border-radius:12px;padding:1rem;margin-bottom:0.75rem">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:0.75rem">
@@ -192,7 +208,7 @@ function renderInicio(estadoDia) {
         <i class="ti ti-alert-triangle" style="font-size:20px;color:#DC2626;flex-shrink:0"></i>
         <div>
           <div style="font-weight:700;color:#991B1B;font-size:14px">Días con registros incompletos</div>
-          <div style="font-size:12px;color:#B91C1C">Últimos 30 días (excluyendo domingos)</div>
+          <div style="font-size:12px;color:#B91C1C">Últimos 30 días</div>
         </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px">
@@ -200,13 +216,15 @@ function renderInicio(estadoDia) {
           const d = new Date(p.fecha + 'T12:00:00')
           const nombreDia = d.toLocaleDateString('es-CL', { weekday: 'long' })
           const fechaLeg = d.toLocaleDateString('es-CL', { day: 'numeric', month: 'long' })
-          const faltaLabels = p.faltantes.map(f => f === 'manipuladores' ? 'Manip.' : f === 'temperatura' ? 'Temp.' : 'Superf.').join(', ')
+          const LBL = { manipuladores: 'Manip.', temperatura: 'Temp.', superficies: 'Superf.' }
+          const faltaLabels = p.faltantes.map(g => `${g.turno}: ${g.faltantes.map(f => LBL[f] || f).join(', ')}`).join(' | ')
+          const primerTurno = p.faltantes[0]?.turno || 'Día'
           return `<div style="display:flex;align-items:center;justify-content:space-between;background:white;border:1px solid #FECACA;border-radius:8px;padding:8px 12px">
             <div>
               <div style="font-size:13px;font-weight:600;color:#7F1D1D;text-transform:capitalize">${nombreDia} ${fechaLeg}</div>
               <div style="font-size:11px;color:#B91C1C">Falta: ${faltaLabels}</div>
             </div>
-            <button onclick="irAFechaPendiente('${p.fecha}')"
+            <button onclick="irAFechaPendiente('${p.fecha}','${primerTurno}')"
               style="padding:5px 10px;font-size:11px;font-weight:700;background:#DC2626;color:white;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">
               Llenar ahora
             </button>
@@ -238,9 +256,9 @@ function renderApp() {
 
 function renderHistorialPanel() {
   const hoyStr = fechaHoy()
-  const hace7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-  const hace30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-  const hace90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+  const hace7 = fechaLocal(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))
+  const hace30 = fechaLocal(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))
+  const hace90 = fechaLocal(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000))
 
   return `
   <div style="padding:1rem">
@@ -272,7 +290,17 @@ function renderHistorialPanel() {
 }
 
 function renderFormularios() {
+  const rg = estado.retroGuiado
+  const bannerRetro = rg ? `
+    <div style="background:#FEF3C7;border:1.5px solid #F59E0B;border-radius:10px;padding:12px 16px;margin:12px 12px 0;display:flex;gap:10px;align-items:flex-start">
+      <i class="ti ti-arrow-forward-up" style="font-size:20px;color:#D97706;flex-shrink:0"></i>
+      <div style="font-size:13px;color:#92400E">
+        <strong>Falta el turno ${rg.turno} del ${fechaCortaLeg(rg.fecha)}.</strong><br>
+        Ya quedó guardado el otro turno de esa fecha. Completa este también para no dejarlo pendiente (se usa el mismo motivo).
+      </div>
+    </div>` : ''
   return `
+    ${bannerRetro}
     <div class="meta-bar">
       <span class="fecha-txt"><i class="ti ti-calendar" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>${hoy()}</span>
       <div class="turno-grupo">
@@ -555,6 +583,7 @@ window.setTab = (t) => {
 window.setResponsable = (v) => { estado.responsable = v }
 
 window.volverInicio = async () => {
+  estado.retroGuiado = null
   estado.vistaInicio = true; estado.vistaHistorial = false; renderApp()
   estado.estadoDia = await cargarEstadoDia()
 
@@ -572,22 +601,25 @@ window.volverInicio = async () => {
   renderApp()
 }
 
-window.irAFechaPendiente = (fecha) => {
+window.irAFechaPendiente = (fecha, turno) => {
+  estado.retroGuiado = null
+  if (turno) estado.turno = turno
   estado.vistaInicio = false
   estado.vistaHistorial = false
   estado.tabActiva = 'manipuladores'
   renderApp()
-  // Pre-seleccionar la fecha en todos los selectores
+  // Pre-seleccionar la fecha en todos los selectores y mostrar el motivo si corresponde
   setTimeout(() => {
-    ['fecha-manip', 'fecha-temp', 'fecha-sup', 'fecha-rec'].forEach(id => {
+    const ids = { 'fecha-manip': 'motivo-manip', 'fecha-temp': 'motivo-temp', 'fecha-sup': 'motivo-sup', 'fecha-rec': 'motivo-rec' }
+    Object.entries(ids).forEach(([id, motivoDiv]) => {
       const el = document.getElementById(id)
-      if (el) el.value = fecha
+      if (el) { el.value = fecha; window.toggleMotivoRetroactivo(motivoDiv, fecha) }
     })
   }, 100)
 }
 
-window.irAFormularios = () => { estado.vistaInicio = false; estado.vistaHistorial = false; renderApp() }
-window.irAFormulario = (turno, tipo) => { estado.turno = turno; estado.tabActiva = tipo; estado.vistaInicio = false; estado.vistaHistorial = false; renderApp() }
+window.irAFormularios = () => { estado.retroGuiado = null; estado.vistaInicio = false; estado.vistaHistorial = false; renderApp() }
+window.irAFormulario = (turno, tipo) => { estado.retroGuiado = null; estado.turno = turno; estado.tabActiva = tipo; estado.vistaInicio = false; estado.vistaHistorial = false; renderApp() }
 window.toggleHistorial = () => { estado.vistaHistorial = true; estado.vistaInicio = false; renderApp() }
 
 window.setPeriodo = (desde, hasta) => {
@@ -699,9 +731,12 @@ window.guardarManip = async () => {
   const btn = document.getElementById('btn-guardar-manip')
   if (btn) { btn.classList.add('guardando'); btn.innerHTML = '<i class="ti ti-loader"></i> Guardando...'; btn.disabled = true }
   try {
-    await guardarManipuladores({ turno: estado.turno, responsable: estado.responsable, items, fecha: document.getElementById('fecha-manip')?.value || null, motivoRetroactivo: document.getElementById('motivo-manip-texto')?.value || null })
-    mostrarToast(`Registro guardado — ${horaActual()}`)
-    setTimeout(async () => { await window.volverInicio() }, 1500)
+    const fechaSel = document.getElementById('fecha-manip')?.value || null
+    const motivoSel = document.getElementById('motivo-manip-texto')?.value || null
+    const turnoGuardado = estado.turno
+    await guardarManipuladores({ turno: turnoGuardado, responsable: estado.responsable, items, fecha: fechaSel, motivoRetroactivo: motivoSel })
+    mostrarToast('Registro guardado')
+    setTimeout(async () => { await despuesDeGuardar('manipuladores', turnoGuardado, fechaSel, motivoSel) }, 1500)
   } catch(e) { mostrarToast('Error al guardar. Verifica la conexión.', 'error') }
   if (btn) { btn.classList.remove('guardando'); btn.innerHTML = '<i class="ti ti-device-floppy"></i> Guardar registro'; btn.disabled = false }
 }
@@ -717,9 +752,12 @@ window.guardarTemp = async () => {
     return { equipo: eq.equipo, rango_min: eq.min === -99 ? null : eq.min, rango_max: eq.max === 999 ? null : eq.max, temperatura: isNaN(v) ? null : v, resultado, accion_correctiva: corr || null }
   })
   try {
-    await guardarTemperaturas({ turno: estado.turno, responsable: estado.responsable, items, fecha: document.getElementById('fecha-temp')?.value || null, motivoRetroactivo: document.getElementById('motivo-temp-texto')?.value || null })
-    mostrarToast(`Registro guardado — ${horaActual()}`)
-    setTimeout(async () => { await window.volverInicio() }, 1500)
+    const fechaSel = document.getElementById('fecha-temp')?.value || null
+    const motivoSel = document.getElementById('motivo-temp-texto')?.value || null
+    const turnoGuardado = estado.turno
+    await guardarTemperaturas({ turno: turnoGuardado, responsable: estado.responsable, items, fecha: fechaSel, motivoRetroactivo: motivoSel })
+    mostrarToast('Registro guardado')
+    setTimeout(async () => { await despuesDeGuardar('temperatura', turnoGuardado, fechaSel, motivoSel) }, 1500)
   } catch(e) { mostrarToast('Error al guardar. Verifica la conexión.', 'error') }
 }
 
@@ -733,9 +771,12 @@ window.guardarSup = async () => {
     items.push({ item: card.dataset.item, seccion: card.dataset.seccion, resultado: resultado || 'NA', accion_correctiva: card.querySelector('.correctiva textarea')?.value || null })
   })
   try {
-    await guardarSuperficies({ turno: estado.turno, responsable: estado.responsable, items, fecha: document.getElementById('fecha-sup')?.value || null, motivoRetroactivo: document.getElementById('motivo-sup-texto')?.value || null })
-    mostrarToast(`Registro guardado — ${horaActual()}`)
-    setTimeout(async () => { await window.volverInicio() }, 1500)
+    const fechaSel = document.getElementById('fecha-sup')?.value || null
+    const motivoSel = document.getElementById('motivo-sup-texto')?.value || null
+    const turnoGuardado = estado.turno
+    await guardarSuperficies({ turno: turnoGuardado, responsable: estado.responsable, items, fecha: fechaSel, motivoRetroactivo: motivoSel })
+    mostrarToast('Registro guardado')
+    setTimeout(async () => { await despuesDeGuardar('superficies', turnoGuardado, fechaSel, motivoSel) }, 1500)
   } catch(e) { mostrarToast('Error al guardar. Verifica la conexión.', 'error') }
 }
 
@@ -754,8 +795,39 @@ window.guardarRec = async () => {
   if (productos.length === 0) { mostrarToast('Ingresa al menos un producto con fecha de vencimiento', 'error'); return }
   try {
     await guardarRecepcion({ responsable, proveedor: document.getElementById('rec-proveedor')?.value, nFactura: document.getElementById('rec-factura')?.value, patenteCamion: document.getElementById('rec-patente')?.value, higieneCamion: document.getElementById('rec-higiene')?.value, productos, fecha: document.getElementById('fecha-rec')?.value || null, motivoRetroactivo: document.getElementById('motivo-rec-texto')?.value || null })
-    mostrarToast(`Recepción guardada — ${horaActual()}`)
+    mostrarToast('Recepción guardada')
   } catch(e) { mostrarToast('Error al guardar. Verifica la conexión.', 'error') }
+}
+
+// Tras guardar: si el registro es retroactivo y falta el otro turno de esa fecha,
+// se abre de inmediato el otro turno (mismo formulario, misma fecha, mismo motivo).
+async function despuesDeGuardar(tipo, turnoGuardado, fecha, motivo) {
+  try {
+    if (fecha && esRetroactivo(fecha)) {
+      const otro = turnoGuardado === 'Día' ? 'Noche' : 'Día'
+      const est = await getEstadoDia(fecha)
+      const yaTiene = (est[tipo] || []).some(r => normalizarTurno(r.turno) === otro)
+      if (!yaTiene) {
+        estado.retroGuiado = { fecha, turno: otro, tipo, motivo }
+        estado.turno = otro
+        estado.tabActiva = tipo
+        estado.vistaInicio = false
+        estado.vistaHistorial = false
+        renderApp()
+        setTimeout(() => {
+          const ids = { manipuladores: ['fecha-manip', 'motivo-manip', 'motivo-manip-texto'], temperatura: ['fecha-temp', 'motivo-temp', 'motivo-temp-texto'], superficies: ['fecha-sup', 'motivo-sup', 'motivo-sup-texto'] }[tipo]
+          const f = document.getElementById(ids[0])
+          if (f) f.value = fecha
+          window.toggleMotivoRetroactivo(ids[1], fecha)
+          const t = document.getElementById(ids[2])
+          if (t) t.value = motivo || ''
+          window.scrollTo({ top: 0, behavior: 'smooth' })
+        }, 100)
+        return
+      }
+    }
+  } catch(e) { /* si falla, vuelve al inicio normalmente */ }
+  await window.volverInicio()
 }
 
 async function cargarHistorial() {
@@ -789,7 +861,7 @@ async function cargarHistorial() {
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:4px">
           ${TURNOS.map(turno => {
-            const regsTurno = regs.filter(r => r.turno === turno)
+            const regsTurno = regs.filter(r => normalizarTurno(r.turno) === turno)
             if (regsTurno.length === 0) return `<span style="font-size:11px;padding:3px 8px;border-radius:20px;background:var(--gris-2);color:var(--texto-mut)">${turno}: sin registro</span>`
             return regsTurno.map(r => `
               <span style="font-size:11px;padding:3px 8px;border-radius:20px;background:${r.tiene_nc ? 'var(--rojo-claro)' : 'var(--verde-claro)'};color:${r.tiene_nc ? 'var(--rojo)' : 'var(--verde)'}">
@@ -808,7 +880,7 @@ async function cargarHistorial() {
 // MOTIVO RETROACTIVO: mostrar/ocultar según fecha
 // ─────────────────────────────────────────────
 window.toggleMotivoRetroactivo = (divId, fechaVal) => {
-  const hoy = new Date().toISOString().split('T')[0]
+  const hoy = jornadaActual()
   const div = document.getElementById(divId)
   if (div) div.style.display = fechaVal && fechaVal !== hoy ? 'block' : 'none'
 }
@@ -818,7 +890,7 @@ window.toggleMotivoRetroactivo = (divId, fechaVal) => {
 // ─────────────────────────────────────────────
 function validarMotivo(fechaId, motivoId) {
   const fecha = document.getElementById(fechaId)?.value
-  const hoy = new Date().toISOString().split('T')[0]
+  const hoy = jornadaActual()
   if (fecha && fecha !== hoy) {
     const divIdMap = { 'motivo-manip-texto': 'motivo-manip', 'motivo-temp-texto': 'motivo-temp', 'motivo-sup-texto': 'motivo-sup', 'motivo-rec-texto': 'motivo-rec' }
     const div = document.getElementById(divIdMap[motivoId])
@@ -841,42 +913,58 @@ function validarMotivo(fechaId, motivoId) {
 // ALERTAS DE RECORDATORIO (notificaciones del navegador)
 // ─────────────────────────────────────────────
 const ALERTAS_CONFIG = [
-  { hh: 9,  mm: 30, bloque: 'Día',   mensaje: '⏰ Recuerda llenar los formularios del turno Día (cierra a las 12:59)' },
-  { hh: 12, mm: 59, mensaje: '🔔 Ventana del turno Día cerrando. ¿Ya llenaste los formularios?' },
-  { hh: 16, mm: 59, mensaje: '🔔 Ventana del turno Tarde cerrando. ¿Ya llenaste los formularios?' },
+  { hh: 9,  mm: 30, mensaje: '⏰ Recuerda llenar los formularios del turno Día (cierra a las 21:00)' },
+  { hh: 20, mm: 30, mensaje: '🔔 El turno Día cierra en 30 minutos. ¿Ya llenaste los formularios?' },
 ]
 
-let alertasActivas = []
+// Verificaciones de cierre: la Noche termina al día siguiente, por eso se revisa
+// la jornada de ayer a las 09:05 y la de hoy a las 21:05 (turno Día).
+const CIERRES_CONFIG = [
+  { hh: 21, mm: 5, bloque: 'Día',   diasAtras: 0 },
+  { hh: 9,  mm: 5, bloque: 'Noche', diasAtras: 1 },
+]
 
-function programarAlertas() {
-  alertasActivas.forEach(t => clearTimeout(t))
-  alertasActivas = []
+const disparados = new Set()
+let vigilanciaIniciada = false
 
-  if (!('Notification' in window)) return
+function ejecutarUnaVez(clave, fn) {
+  if (disparados.has(clave)) return
+  disparados.add(clave)
+  fn()
+}
 
-  if (Notification.permission === 'default') {
-    Notification.requestPermission()
-    return
-  }
-  if (Notification.permission !== 'granted') return
-
+// Un solo reloj revisa cada 30 s. Sirve aunque la pestaña quede abierta varios días
+// y no depende de setTimeouts calculados al abrir la página.
+function tickVigilancia() {
   const ahora = new Date()
-  ALERTAS_CONFIG.forEach(cfg => {
-    const objetivo = new Date(ahora)
-    objetivo.setHours(cfg.hh, cfg.mm, 0, 0)
-    const diff = objetivo - ahora
-    if (diff > 0) {
-      const t = setTimeout(() => {
-        new Notification('TurnoDoc BPM', {
-          body: cfg.mensaje,
-          icon: '/favicon.ico',
-          tag: `alerta-${cfg.hh}-${cfg.mm}`,
-          requireInteraction: true,
+  const hh = ahora.getHours(), mm = ahora.getMinutes()
+  const hoyStr = fechaLocal(ahora)
+
+  if ('Notification' in window && Notification.permission === 'granted') {
+    ALERTAS_CONFIG.forEach(cfg => {
+      if (cfg.hh === hh && cfg.mm === mm) {
+        ejecutarUnaVez(`alerta-${hoyStr}-${hh}:${mm}`, () => {
+          new Notification('TurnoDoc BPM', { body: cfg.mensaje, icon: '/favicon.ico', tag: `alerta-${hh}-${mm}`, requireInteraction: true })
         })
-      }, diff)
-      alertasActivas.push(t)
+      }
+    })
+  }
+
+  CIERRES_CONFIG.forEach(cfg => {
+    if (cfg.hh === hh && cfg.mm === mm) {
+      const f = new Date(ahora)
+      f.setDate(f.getDate() - cfg.diasAtras)
+      const fechaTurno = fechaLocal(f)
+      ejecutarUnaVez(`cierre-${hoyStr}-${cfg.bloque}`, () => verificarCierreVentana(cfg.bloque, fechaTurno))
     }
   })
+}
+
+function programarAlertas() {
+  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission()
+  if (vigilanciaIniciada) return
+  vigilanciaIniciada = true
+  setInterval(tickVigilancia, 30000)
 }
 
 // ─────────────────────────────────────────────
@@ -884,7 +972,7 @@ function programarAlertas() {
 // El correo se envía cuando cierra una ventana sin registro
 // ─────────────────────────────────────────────
 const CORREO_SUPERVISOR = 'alcidesnin@gmail.com'
-const RESEND_API_KEY = '' // Se configura con variable de entorno o aquí directamente
+const RESEND_API_KEY = import.meta.env?.VITE_RESEND_API_KEY || '' // Se configura con variable de entorno o aquí directamente
 
 async function enviarCorreoEscalamiento(bloque, fecha) {
   if (!RESEND_API_KEY) {
@@ -934,33 +1022,13 @@ async function verificarCierreVentana(bloque, fecha) {
     const { getEstadoDia } = await import('./db.js')
     const estado = await getEstadoDia(fecha)
     const tipos = ['manipuladores', 'temperatura', 'superficies']
-    const faltantes = tipos.filter(t => !estado[t] || estado[t].length === 0)
+    const faltantes = tipos.filter(t => !(estado[t] || []).some(r => normalizarTurno(r.turno) === bloque))
     if (faltantes.length > 0) {
       await enviarCorreoEscalamiento(bloque, fecha)
     }
   } catch(e) {
     console.error('Error verificando cierre de ventana:', e)
   }
-}
-
-// Programar verificaciones de cierre de ventana
-function programarVerificacionesCierre() {
-  const hoy = new Date().toISOString().split('T')[0]
-  const cierres = [
-    { hh: 13, mm: 0,  bloque: 'Día' },
-    { hh: 17, mm: 0,  bloque: 'Tarde' },
-    { hh: 21, mm: 5,  bloque: 'Noche' },
-  ]
-
-  const ahora = new Date()
-  cierres.forEach(cfg => {
-    const objetivo = new Date(ahora)
-    objetivo.setHours(cfg.hh, cfg.mm, 0, 0)
-    const diff = objetivo - ahora
-    if (diff > 0) {
-      setTimeout(() => verificarCierreVentana(cfg.bloque, hoy), diff)
-    }
-  })
 }
 
 // ─────────────────────────────────────────────
@@ -1076,7 +1144,6 @@ async function init() {
 
   // Programar alertas de recordatorio y verificaciones de cierre
   programarAlertas()
-  programarVerificacionesCierre()
 }
 
 init()

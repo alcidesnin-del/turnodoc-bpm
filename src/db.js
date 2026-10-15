@@ -3,29 +3,55 @@ import { supabase } from './supabase.js'
 const EDS_CODIGO = '40533'
 
 // ─────────────────────────────────────────────
-// BLOQUES HORARIOS
-// Día:   09:00 – 12:59  (alerta a las 09:30)
-// Tarde: 13:00 – 16:59  (alerta a las 12:59)
-// Noche: 17:00 – 21:00  (alerta a las 16:59)
+// TURNOS (modelo de 2 turnos)
+// Día:   09:00 – 21:00
+// Noche: 21:01 – 08:59 (cruza medianoche)
+// Un registro de Noche pertenece a la JORNADA en que el turno comenzó:
+// entre 00:00 y 08:59 la jornada vigente es la del día anterior.
 // ─────────────────────────────────────────────
 export const BLOQUES = [
-  { id: 'dia',   label: 'Día',   inicio: '09:00', fin: '12:59', alertaHH: 9,  alertaMM: 30 },
-  { id: 'tarde', label: 'Tarde', inicio: '13:00', fin: '16:59', alertaHH: 12, alertaMM: 59 },
-  { id: 'noche', label: 'Noche', inicio: '17:00', fin: '21:00', alertaHH: 16, alertaMM: 59 },
+  { id: 'dia',   label: 'Día',   inicio: '09:00', fin: '21:00' },
+  { id: 'noche', label: 'Noche', inicio: '21:01', fin: '08:59' },
 ]
+
+// A partir de esta fecha rige el modelo de 2 turnos. Antes, los días solo
+// se evalúan por tipo de formulario (modelo antiguo de 3 turnos).
+export const FECHA_CORTE_2_TURNOS = '2026-10-14'
+
+// Fecha local (YYYY-MM-DD) sin el desfase de UTC
+export function fechaLocal(d = new Date()) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${dd}`
+}
+
+// Fecha de la jornada vigente: antes de las 09:00 sigue siendo la jornada de ayer
+export function jornadaActual(d = new Date()) {
+  const ref = new Date(d)
+  if (ref.getHours() < 9) ref.setDate(ref.getDate() - 1)
+  return fechaLocal(ref)
+}
 
 export function getBloqueActual() {
   const now = new Date()
   const minutos = now.getHours() * 60 + now.getMinutes()
-  if (minutos >= 9*60 && minutos <= 12*60+59) return 'dia'
-  if (minutos >= 13*60 && minutos <= 16*60+59) return 'tarde'
-  if (minutos >= 17*60 && minutos <= 21*60) return 'noche'
-  return null
+  return minutos >= 9 * 60 && minutos <= 21 * 60 ? 'dia' : 'noche'
+}
+
+export function getTurnoActual() {
+  return getBloqueActual() === 'dia' ? 'Día' : 'Noche'
+}
+
+// Los registros antiguos usan Mañana/Tarde (se leen como Día) y Noche
+export function normalizarTurno(t) {
+  if (t === 'Mañana' || t === 'Tarde' || t === 'Día') return 'Día'
+  if (t === 'Noche') return 'Noche'
+  return t
 }
 
 export function esRetroactivo(fechaStr) {
-  const hoy = new Date().toISOString().split('T')[0]
-  return fechaStr !== hoy
+  return fechaStr !== jornadaActual()
 }
 
 async function getEdsId() {
@@ -47,7 +73,7 @@ export async function getPersonal(rol = null) {
 // ─────────────────────────────────────────────
 export async function guardarManipuladores({ turno, responsable, items, fecha, motivoRetroactivo }) {
   const edsId = await getEdsId()
-  const fechaRegistro = fecha || new Date().toISOString().split('T')[0]
+  const fechaRegistro = fecha || jornadaActual()
   const retroactivo = esRetroactivo(fechaRegistro)
   const { data: registro, error } = await supabase.from('registros_bpm').insert({
     eds_id: edsId, tipo: 'manipuladores', fecha: fechaRegistro, turno, responsable,
@@ -64,7 +90,7 @@ export async function guardarManipuladores({ turno, responsable, items, fecha, m
 
 export async function guardarTemperaturas({ turno, responsable, items, fecha, motivoRetroactivo }) {
   const edsId = await getEdsId()
-  const fechaRegistro = fecha || new Date().toISOString().split('T')[0]
+  const fechaRegistro = fecha || jornadaActual()
   const retroactivo = esRetroactivo(fechaRegistro)
   const { data: registro, error } = await supabase.from('registros_bpm').insert({
     eds_id: edsId, tipo: 'temperatura', fecha: fechaRegistro, turno, responsable,
@@ -81,7 +107,7 @@ export async function guardarTemperaturas({ turno, responsable, items, fecha, mo
 
 export async function guardarSuperficies({ turno, responsable, items, fecha, motivoRetroactivo }) {
   const edsId = await getEdsId()
-  const fechaRegistro = fecha || new Date().toISOString().split('T')[0]
+  const fechaRegistro = fecha || jornadaActual()
   const retroactivo = esRetroactivo(fechaRegistro)
   const { data: registro, error } = await supabase.from('registros_bpm').insert({
     eds_id: edsId, tipo: 'superficies', fecha: fechaRegistro, turno, responsable,
@@ -98,7 +124,7 @@ export async function guardarSuperficies({ turno, responsable, items, fecha, mot
 
 export async function guardarRecepcion({ responsable, proveedor, nFactura, patenteCamion, higieneCamion, productos, fecha, motivoRetroactivo }) {
   const edsId = await getEdsId()
-  const fechaRegistro = fecha || new Date().toISOString().split('T')[0]
+  const fechaRegistro = fecha || jornadaActual()
   const retroactivo = esRetroactivo(fechaRegistro)
   const { data: registro, error } = await supabase.from('registros_bpm').insert({
     eds_id: edsId, tipo: 'recepcion', fecha: fechaRegistro, turno: '—', responsable,
@@ -118,7 +144,7 @@ export async function guardarRecepcion({ responsable, proveedor, nFactura, paten
 // ─────────────────────────────────────────────
 export async function getEstadoDia(fecha = null) {
   const edsId = await getEdsId()
-  const fechaConsulta = fecha || new Date().toISOString().split('T')[0]
+  const fechaConsulta = fecha || jornadaActual()
   const { data } = await supabase.from('registros_bpm').select('tipo, turno, created_at, retroactivo, motivo_retroactivo').eq('eds_id', edsId).eq('fecha', fechaConsulta)
   const registros = data || []
   return {
@@ -131,29 +157,58 @@ export async function getEstadoDia(fecha = null) {
 }
 
 // ─────────────────────────────────────────────
+// COMPLETITUD POR TURNO
+// ─────────────────────────────────────────────
+const TIPOS_OBLIGATORIOS = ['manipuladores', 'temperatura', 'superficies']
+
+// Devuelve [{ turno, faltantes[] }] según las reglas del modelo vigente para esa fecha
+function faltantesDelDia(registrosDia, fecha, jornada) {
+  const regs = registrosDia || []
+  // Días anteriores al corte: regla antigua (solo tipos, sin turno)
+  if (fecha < FECHA_CORTE_2_TURNOS) {
+    const tipos = new Set(regs.map(r => r.tipo))
+    const f = TIPOS_OBLIGATORIOS.filter(t => !tipos.has(t))
+    return f.length ? [{ turno: 'Día', faltantes: f }] : []
+  }
+  // En la jornada vigente solo se exige el turno Día (la Noche aún no cierra)
+  const turnos = fecha === jornada ? ['Día'] : ['Día', 'Noche']
+  const out = []
+  turnos.forEach(turno => {
+    const tipos = new Set(regs.filter(r => normalizarTurno(r.turno) === turno).map(r => r.tipo))
+    const f = TIPOS_OBLIGATORIOS.filter(t => !tipos.has(t))
+    if (f.length) out.push({ turno, faltantes: f })
+  })
+  return out
+}
+
+function recorrerFechas(desdeStr, hastaStr, fn) {
+  const cursor = new Date(desdeStr + 'T12:00:00')
+  const fin = new Date(hastaStr + 'T12:00:00')
+  while (cursor <= fin) {
+    fn(fechaLocal(cursor))
+    cursor.setDate(cursor.getDate() + 1)
+  }
+}
+
+// ─────────────────────────────────────────────
 // PANEL DE SUPERVISIÓN
 // ─────────────────────────────────────────────
 export async function getPanelSupervision(diasAtras = 7) {
   const edsId = await getEdsId()
-  const hoy = new Date()
-  const desde = new Date(hoy)
-  desde.setDate(desde.getDate() - diasAtras)
-  const fechaDesde = desde.toISOString().split('T')[0]
-  const fechaHoy = hoy.toISOString().split('T')[0]
+  const jornada = jornadaActual()
+  const base = new Date(jornada + 'T12:00:00')
+  base.setDate(base.getDate() - diasAtras)
+  const fechaDesde = fechaLocal(base)
 
   const { data: registros } = await supabase.from('registros_bpm')
     .select('fecha, tipo, turno, responsable, created_at, retroactivo, motivo_retroactivo, tiene_nc')
-    .eq('eds_id', edsId).gte('fecha', fechaDesde).lte('fecha', fechaHoy)
+    .eq('eds_id', edsId).gte('fecha', fechaDesde).lte('fecha', jornada)
     .order('fecha', { ascending: false }).order('created_at', { ascending: true })
 
   const porFecha = {}
-  const TIPOS = ['manipuladores', 'temperatura', 'superficies']
-  const cursor = new Date(desde)
-  while (cursor <= hoy) {
-    const f = cursor.toISOString().split('T')[0]
-    porFecha[f] = { fecha: f, registros: [], completo: false, tieneRetroactivos: false, tieneNC: false }
-    cursor.setDate(cursor.getDate() + 1)
-  }
+  recorrerFechas(fechaDesde, jornada, f => {
+    porFecha[f] = { fecha: f, registros: [], completo: false, tieneRetroactivos: false, tieneNC: false, faltantes: [] }
+  })
 
   ;(registros || []).forEach(r => {
     if (porFecha[r.fecha]) {
@@ -164,8 +219,8 @@ export async function getPanelSupervision(diasAtras = 7) {
   })
 
   Object.values(porFecha).forEach(d => {
-    const tipos = new Set(d.registros.map(r => r.tipo))
-    d.completo = TIPOS.every(t => tipos.has(t))
+    d.faltantes = faltantesDelDia(d.registros, d.fecha, jornada)
+    d.completo = d.faltantes.length === 0
   })
 
   return Object.values(porFecha).sort((a, b) => b.fecha.localeCompare(a.fecha))
@@ -173,32 +228,30 @@ export async function getPanelSupervision(diasAtras = 7) {
 
 // ─────────────────────────────────────────────
 // DÍAS PENDIENTES
+// Devuelve [{ fecha, faltantes: [{ turno, faltantes[] }] }]
 // ─────────────────────────────────────────────
 export async function getDiasPendientes(diasAtras = 30) {
   const edsId = await getEdsId()
-  const hoy = new Date()
-  const desde = new Date(hoy)
-  desde.setDate(desde.getDate() - diasAtras)
-  const fechaDesde = desde.toISOString().split('T')[0]
-  const fechaHoy = hoy.toISOString().split('T')[0]
+  const jornada = jornadaActual()
+  const base = new Date(jornada + 'T12:00:00')
+  base.setDate(base.getDate() - diasAtras)
+  // La lista de pendientes parte desde la fecha de corte (no se arrastra historial anterior)
+  let fechaDesde = fechaLocal(base)
+  if (fechaDesde < FECHA_CORTE_2_TURNOS) fechaDesde = FECHA_CORTE_2_TURNOS
 
-  const { data: registros } = await supabase.from('registros_bpm').select('fecha, tipo').eq('eds_id', edsId).gte('fecha', fechaDesde).lte('fecha', fechaHoy)
+  const { data: registros } = await supabase.from('registros_bpm').select('fecha, tipo, turno').eq('eds_id', edsId).gte('fecha', fechaDesde).lte('fecha', jornada)
 
   const porFecha = {}
   ;(registros || []).forEach(r => {
-    if (!porFecha[r.fecha]) porFecha[r.fecha] = new Set()
-    porFecha[r.fecha].add(r.tipo)
+    if (!porFecha[r.fecha]) porFecha[r.fecha] = []
+    porFecha[r.fecha].push(r)
   })
 
-  const TIPOS_OBLIGATORIOS = ['manipuladores', 'temperatura', 'superficies']
   const pendientes = []
-  const cursor = new Date(desde)
-  while (cursor <= hoy) {
-    const fechaStr = cursor.toISOString().split('T')[0]
-    const faltantes = TIPOS_OBLIGATORIOS.filter(t => !(porFecha[fechaStr] || new Set()).has(t))
-    if (faltantes.length > 0) pendientes.push({ fecha: fechaStr, faltantes })
-    cursor.setDate(cursor.getDate() + 1)
-  }
+  recorrerFechas(fechaDesde, jornada, f => {
+    const falt = faltantesDelDia(porFecha[f], f, jornada)
+    if (falt.length > 0) pendientes.push({ fecha: f, faltantes: falt })
+  })
   return pendientes
 }
 
