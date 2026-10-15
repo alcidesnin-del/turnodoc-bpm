@@ -119,12 +119,13 @@ export async function generarPDFDia(fecha, registrosDia, supabase) {
   doc.setTextColor(NEGRO)
   y += 16
 
-  const TURNOS = ['Día', 'Noche']
+  const LEGADO = fecha < '2026-10-14' // fechas del modelo antiguo de 3 turnos: se muestran tal como se registraron
+  const TURNOS = LEGADO ? ['Mañana', 'Tarde', 'Noche'] : ['Día', 'Noche']
   const TIPOS = ['manipuladores', 'temperatura', 'superficies', 'recepcion']
   const TIPO_LABELS = { manipuladores: 'Higiene de Manipuladores', temperatura: 'Control de Temperatura', superficies: 'Higiene de Superficies y Químicos', recepcion: 'Recepción de Materias Primas' }
 
   for (const turno of TURNOS) {
-    const registrosTurno = registrosDia.filter(r => normalizarTurno(r.turno) === turno)
+    const registrosTurno = registrosDia.filter(r => LEGADO ? r.turno === turno : normalizarTurno(r.turno) === turno)
     if (registrosTurno.length === 0) {
       nuevaPaginaSiNecesario(20)
       doc.setFontSize(10)
@@ -478,7 +479,7 @@ export async function generarPDFPeriodo(fechaDesde, fechaHasta, registros, supab
         doc.setFont('helvetica', 'normal')
         doc.setFontSize(8)
         doc.setTextColor(ROJO)
-        const texto = `- [${normalizarTurno(reg.turno)}] ${tipoLabel} - incumplimiento registrado`
+        const texto = `- [${reg.fecha < '2026-10-14' ? reg.turno : normalizarTurno(reg.turno)}] ${tipoLabel} - incumplimiento registrado`
         doc.text(texto, M + 3, y)
         doc.setTextColor(NEGRO)
         y += 4
@@ -509,7 +510,7 @@ export async function generarPDFPeriodo(fechaDesde, fechaHasta, registros, supab
         const horaReal = r.created_at ? new Date(r.created_at).toLocaleString('es-CL') : '—'
         doc.setFont('helvetica', 'normal')
         doc.setFontSize(8)
-        const texto = `- ${fechaCorta(d.fecha)} [${normalizarTurno(r.turno)}] ${tipoLabel} - llenado el ${horaReal} - motivo: "${r.motivo_retroactivo || 'sin motivo registrado'}"`
+        const texto = `- ${fechaCorta(d.fecha)} [${d.fecha < '2026-10-14' ? r.turno : normalizarTurno(r.turno)}] ${tipoLabel} - llenado el ${horaReal} - motivo: "${r.motivo_retroactivo || 'sin motivo registrado'}"`
         const lineas = doc.splitTextToSize(texto, W - M * 2 - 5)
         doc.text(lineas, M + 3, y)
         y += lineas.length * 4
