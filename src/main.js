@@ -1120,10 +1120,10 @@ async function init() {
     estado.personalTodos = todos
   } catch(e) {
     estado.personal = [
-      { nombre: 'Zoila Caimanque', rol: 'tienda' },
       { nombre: 'Vianca Rivera', rol: 'tienda' },
       { nombre: 'Ivonne Rojas', rol: 'tienda' },
-      { nombre: 'Gabriela Lara', rol: 'tienda' },
+      { nombre: 'Lidia Mamani', rol: 'tienda' },
+      { nombre: 'Boris Veliz', rol: 'tienda' },
       { nombre: 'Vanessa Guerrero', rol: 'tienda' },
     ]
     estado.personalTodos = [{ nombre: 'María Luisa Acuña', rol: 'supervisora' }, ...estado.personal]
